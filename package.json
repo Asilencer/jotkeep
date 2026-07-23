@@ -1,0 +1,61 @@
+{
+  "name": "jotkeep",
+  "version": "0.2.0",
+  "private": true,
+  "license": "MIT",
+  "description": "Jotkeep, a local-first Markdown workspace for macOS.",
+  "type": "module",
+  "main": "electron/main.mjs",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Asilencer/jotkeep.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Asilencer/jotkeep/issues"
+  },
+  "homepage": "https://github.com/Asilencer/jotkeep#readme",
+  "scripts": {
+    "dev": "npm run build:native && concurrently -k -s first \"npm:dev:renderer\" \"npm:dev:electron\"",
+    "dev:renderer": "vite --host 127.0.0.1",
+    "dev:electron": "wait-on tcp:5173 && VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron electron/main.mjs",
+    "build:weather": "node scripts/build-weather-bridge.mjs",
+    "build:spotlight": "node scripts/build-spotlight-bridge.mjs",
+    "build:share": "node scripts/build-share-extension.mjs",
+    "build:icon": "node scripts/build-app-icon.mjs",
+    "build:native": "npm run build:weather && npm run build:spotlight && npm run build:share",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/*.test.*",
+    "check:electron": "node --check electron/main.mjs && node --check electron/preload.cjs && node --check electron/storage-coordinator.mjs && node --check electron/file-snapshot-cache.mjs && node --check electron/ipc-contract.mjs",
+    "check": "npm run typecheck && npm test && npm run check:electron",
+    "build": "npm run build:native && npm run typecheck && vite build",
+    "start": "electron electron/main.mjs",
+    "package:mac": "npm run build && npm run build:icon && node scripts/package-mac.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@mozilla/readability": "^0.6.0",
+    "jsdom": "^29.1.1",
+    "katex": "0.18.1",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "reicon-react": "1.1.302",
+    "slate": "0.126.0",
+    "slate-history": "0.113.1",
+    "slate-react": "0.126.0",
+    "turndown": "^7.2.4"
+  },
+  "devDependencies": {
+    "@electron/packager": "^20.0.3",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.3",
+    "concurrently": "9.2.4",
+    "electron": "43.1.1",
+    "tsx": "^4.23.1",
+    "typescript": "7.0.2",
+    "vite": "8.1.5",
+    "wait-on": "9.0.10"
+  }
+}

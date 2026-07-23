@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>Jotkeep app icon</title>
+  <defs>
+    <linearGradient id="brand-field" x1="148" y1="116" x2="876" y2="932" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#EEEDE9"/>
+      <stop offset=".52" stop-color="#D4D3CE"/>
+      <stop offset="1" stop-color="#B7B8B4"/>
+    </linearGradient>
+    <radialGradient id="field-light" cx="0" cy="0" r="1" gradientTransform="translate(260 206) rotate(48) scale(640 590)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFCF0" stop-opacity=".46"/>
+      <stop offset=".72" stop-color="#FFFCF0" stop-opacity=".06"/>
+      <stop offset="1" stop-color="#FFFCF0" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="surface-shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="22" stdDeviation="30" flood-color="#252622" flood-opacity=".16"/>
+    </filter>
+    <filter id="mark-shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="10" stdDeviation="10" flood-color="#252622" flood-opacity=".14"/>
+    </filter>
+    <path
+      id="mark"
+      fill-rule="evenodd"
+      d="
+        M 786 60
+        C 728 101 668 160 612 244
+        C 569 308 540 381 529 463
+        C 518 550 523 650 514 744
+        C 507 823 484 876 448 907
+        C 410 939 358 942 310 913
+        C 303 909 300 913 301 920
+        C 302 928 310 934 321 941
+        C 362 967 418 965 462 941
+        C 523 908 546 845 561 764
+        C 570 716 576 668 589 629
+        L 644 494
+        L 600 525
+        L 652 467
+        L 674 379
+        L 621 419
+        L 679 350
+        L 700 256
+        L 651 291
+        L 708 227
+        C 723 187 742 142 786 60
+        Z
+
+        M 635 299
+        C 612 353 590 420 573 504
+        C 559 571 549 644 546 676
+        C 544 641 548 565 556 500
+        C 565 431 584 372 611 329
+        C 620 316 628 306 635 299
+        Z
+      "
+    />
+  </defs>
+
+  <rect
+    x="76"
+    y="76"
+    width="872"
+    height="872"
+    rx="218"
+    fill="url(#brand-field)"
+    filter="url(#surface-shadow)"
+  />
+  <rect
+    x="76"
+    y="76"
+    width="872"
+    height="872"
+    rx="218"
+    fill="url(#field-light)"
+  />
+  <rect
+    x="82"
+    y="82"
+    width="860"
+    height="860"
+    rx="212"
+    fill="none"
+    stroke="#252622"
+    stroke-opacity=".09"
+    stroke-width="6"
+  />
+  <use
+    href="#mark"
+    fill="#2D2D2B"
+    filter="url(#mark-shadow)"
+    transform="translate(94 88) scale(.82)"
+  />
+</svg>

@@ -51,9 +51,9 @@
 
 <p align="center">
   <img
-    src="./docs/images/jotkeep-workspace.png"
+    src="./assets/screenshots/jotkeep-onboarding-en.png"
     width="100%"
-    alt="Jotkeep 的 Today、月历、天气和 Markdown 编辑界面"
+    alt="Jotkeep 英文 onboarding 首页"
   />
 </p>
 
@@ -105,9 +105,6 @@ Jotkeep 不试图把写作变成另一套复杂的信息管理系统。它只把
 - 简体中文、英文及跟随系统语言
 - Reduce Motion 与基础键盘语义
 
-完整实现范围与尚需终验的边界见
-[实现状态](./docs/implementation-status.md)。
-
 ## 本地开发
 
 ### 环境
@@ -155,7 +152,6 @@ electron/   主进程、IPC、文件存储、索引、备份与系统集成
 native/     Weather、Spotlight 和 Share Extension 的 Swift 实现
 scripts/    原生构建、图标生成与 macOS 打包
 tests/      存储、Markdown、设置与 IPC 回归测试
-docs/       产品边界、实现状态与工程说明
 ```
 
 Renderer 启用 Context Isolation 和 Sandbox，并关闭 Node Integration。文件系统和
@@ -170,13 +166,6 @@ macOS 能力均通过受约束的 preload / IPC 接口进入 Renderer。
 - X 发布使用 Web Intent，Jotkeep 不接入 X OAuth/API，也不会伪装读取最终发布结果。
 - 当前没有云同步、多人协作、插件系统或自动更新。
 - `.notedown` 与 `notedown://` 是兼容标识，品牌更名不会迁移或破坏既有资料库。
-
-更多工程细节：
-
-- [产品信息架构](./docs/product-information-architecture-and-layout.md)
-- [编辑器运行时行为](./docs/editor-runtime-behavior.md)
-- [Open-Meteo 天气接入](./docs/open-meteo-weather.md)
-- [本地 macOS 打包](./docs/local-mac-package.md)
 
 ## 许可证
 

@@ -51,9 +51,9 @@
 
 <p align="center">
   <img
-    src="./docs/images/jotkeep-workspace.png"
+    src="./assets/screenshots/jotkeep-onboarding-en.png"
     width="100%"
-    alt="Jotkeep Today view, calendar, weather, and Markdown editor"
+    alt="Jotkeep English onboarding welcome screen"
   />
 </p>
 
@@ -112,9 +112,6 @@ content.
 - Simplified Chinese, English, and system-language modes
 - Reduce Motion support and essential keyboard semantics
 
-See the [implementation status](./docs/implementation-status.md) for the complete
-implemented scope and the boundaries that still require final validation.
-
 ## Local development
 
 ### Requirements
@@ -163,7 +160,6 @@ electron/   Main process, IPC, file storage, indexing, backups, and system integ
 native/     Swift implementations for Weather, Spotlight, and Share Extension
 scripts/    Native builds, icon generation, and macOS packaging
 tests/      Storage, Markdown, settings, and IPC regression tests
-docs/       Product boundaries, implementation status, and engineering notes
 ```
 
 The Renderer uses Context Isolation and Sandbox with Node Integration disabled.
@@ -184,13 +180,6 @@ interfaces.
   automatic updater.
 - `.notedown` and `notedown://` are compatibility identifiers; the brand rename does
   not migrate or break existing libraries.
-
-More engineering notes, currently written in Chinese:
-
-- [Product information architecture](./docs/product-information-architecture-and-layout.md)
-- [Editor runtime behavior](./docs/editor-runtime-behavior.md)
-- [Open-Meteo weather integration](./docs/open-meteo-weather.md)
-- [Local macOS packaging](./docs/local-mac-package.md)
 
 ## License
 

@@ -8,6 +8,7 @@
 xcuserdata/
 node_modules/
 dist/
+docs/
 npm-debug.log*
 .vite/
 native/build/

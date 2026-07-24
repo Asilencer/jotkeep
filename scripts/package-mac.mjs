@@ -32,8 +32,8 @@ const outputPaths = await packager({
   helperBundleId: 'com.notedown.app.helper',
   appCategoryType: 'public.app-category.productivity',
   appCopyright: 'Copyright © 2026 Jotkeep',
-  appVersion: '0.2.0',
-  buildVersion: '1',
+  appVersion: '0.2.1',
+  buildVersion: '2',
   asar: true,
   prune: true,
   overwrite: true,
@@ -53,6 +53,12 @@ const outputPaths = await packager({
       ? path.relative(rootDirectory, filePath)
       : filePath.replace(/^[/\\]+/, '')
     if (!relativePath) return false
+    if (
+      relativePath === 'node_modules/.vite'
+      || relativePath.startsWith(`node_modules/.vite${path.sep}`)
+    ) {
+      return true
+    }
     const [rootName] = relativePath.split(path.sep)
     return excludedRoots.has(rootName) || excludedFiles.has(relativePath)
   },

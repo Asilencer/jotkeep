@@ -4155,16 +4155,16 @@ kbd {
 }
 
 .docx-date-time-input.is-task {
-  height: calc(var(--ui-font-size) + 10px);
+  height: 1lh;
   gap: 0.32em;
   flex: 0 0 auto;
   padding: 0;
   border: 0;
   border-radius: 0;
   background: transparent;
-  font-family: var(--ui-font-family);
-  font-size: var(--ui-font-size);
-  line-height: 1;
+  font-family: var(--writing-font-family);
+  font-size: var(--editor-font-size);
+  line-height: var(--editor-line-height);
 }
 
 .docx-date-time-input.is-task > svg {

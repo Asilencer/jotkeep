@@ -72,6 +72,7 @@ let spotlightSyncTimer = null
 let spotlightSyncLibraryPath = ''
 let closeFlushTimer = null
 let allowMainWindowClose = false
+let applicationQuitRequested = false
 let pendingDocumentOpen = ''
 let pendingCaptureRequest = null
 let spotlightSyncQueue = Promise.resolve()
@@ -2828,6 +2829,10 @@ if (process.platform === 'darwin') {
 pendingDocumentOpen = process.argv.map(deepLinkDocumentId).find(Boolean) ?? ''
 pendingCaptureRequest = process.argv.map(deepLinkCaptureRequest).find(Boolean) ?? null
 
+app.on('before-quit', () => {
+  applicationQuitRequested = true
+})
+
 const hasSingleInstanceLock = app.requestSingleInstanceLock()
 if (!hasSingleInstanceLock) {
   app.quit()
@@ -3373,6 +3378,7 @@ ipcMain.on('window:flush-complete', async (event, success) => {
   if (success !== true) {
     clearTimeout(closeFlushTimer)
     closeFlushTimer = null
+    applicationQuitRequested = false
     void dialog.showMessageBox(window, {
       type: 'warning',
       message: nativeText('无法保存当前内容', 'Could not save current content'),
@@ -3389,6 +3395,7 @@ ipcMain.on('window:flush-complete', async (event, success) => {
   } catch {
     clearTimeout(closeFlushTimer)
     closeFlushTimer = null
+    applicationQuitRequested = false
     void dialog.showMessageBox(window, {
       type: 'warning',
       message: nativeText('无法保存当前内容', 'Could not save current content'),
@@ -3403,7 +3410,8 @@ ipcMain.on('window:flush-complete', async (event, success) => {
   clearTimeout(closeFlushTimer)
   closeFlushTimer = null
   allowMainWindowClose = true
-  window.close()
+  if (applicationQuitRequested) app.quit()
+  else window.close()
 })
 
 app.whenReady().then(async () => {

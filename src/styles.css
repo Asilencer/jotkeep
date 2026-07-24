@@ -2415,6 +2415,11 @@ kbd {
   margin-top: 9.5px;
 }
 
+.docx-block.type-task > .docx-block-gutter {
+  align-self: center;
+  margin-top: 0;
+}
+
 .docx-block:hover > .docx-block-gutter,
 .docx-block.is-active > .docx-block-gutter,
 .docx-block:focus-within > .docx-block-gutter {

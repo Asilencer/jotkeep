@@ -2028,6 +2028,18 @@ function BookmarkBlock({ element, children }: { element: BookmarkElement; childr
 function TaskBlock({ element, children }: { element: TaskElement; children: ReactNode }) {
   const editor = useSlateStatic()
   const selected = useSelected()
+  const [title, setTitle] = useState(element.title)
+  const isComposingRef = useRef(false)
+
+  useEffect(() => {
+    if (!isComposingRef.current) setTitle(element.title)
+  }, [element.title])
+
+  const changeTitle = (value: string) => {
+    setTitle(value)
+    if (!isComposingRef.current) updateElement(editor, element, { title: value })
+  }
+
   return (
     <div
       className={`docx-task-card${selected ? ' is-selected' : ''}`}
@@ -2044,10 +2056,17 @@ function TaskBlock({ element, children }: { element: TaskElement; children: Reac
       </button>
       <input
         className="docx-task-title"
-        value={element.title}
+        value={title}
         aria-label="任务标题"
         placeholder="任务标题"
-        onChange={(event) => updateElement(editor, element, { title: event.currentTarget.value })}
+        onChange={(event) => changeTitle(event.currentTarget.value)}
+        onCompositionStart={() => {
+          isComposingRef.current = true
+        }}
+        onCompositionEnd={(event) => {
+          isComposingRef.current = false
+          changeTitle(event.currentTarget.value)
+        }}
         onKeyDown={(event) => exitSingleLineControlOnEnter(editor, element, event)}
       />
       <DateTimeInput

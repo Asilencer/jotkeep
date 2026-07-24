@@ -168,17 +168,21 @@ const downloadLatestGithubUpdate = async () => {
           currentVersion,
           latestVersion,
           progress: 0,
+          transferredBytes: 0,
+          totalBytes: githubUpdate.asset.bytes,
         })
         downloadedUpdatePath = await downloadGithubUpdate({
           fetcher: net.fetch,
           update: githubUpdate,
           targetDirectory: path.join(app.getPath('temp'), 'jotkeep-updates'),
-          onProgress: ({ progress }) => {
+          onProgress: ({ progress, transferred, total }) => {
             publishUpdateState({
               status: 'downloading',
               currentVersion,
               latestVersion,
               progress,
+              transferredBytes: transferred,
+              totalBytes: total,
             })
           },
         })

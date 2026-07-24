@@ -255,6 +255,8 @@ const english: Record<string, string> = {
   '移除任务': 'Remove task',
   '移除任务：{title}': 'Remove task: {title}',
   '更新到 Jotkeep {version}': 'Update to Jotkeep {version}',
+  '重新下载 Jotkeep {version}': 'Download Jotkeep {version} again',
+  '正在下载 Jotkeep {version}': 'Downloading Jotkeep {version}',
   '正在下载 Jotkeep {version}（{progress}%）':
     'Downloading Jotkeep {version} ({progress}%)',
   '打开 Jotkeep {version} 安装包': 'Open Jotkeep {version} installer',

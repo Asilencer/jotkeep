@@ -1,6 +1,6 @@
 {
   "name": "jotkeep",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "private": true,
   "license": "MIT",
   "description": "Jotkeep, a local-first Markdown workspace for macOS.",
@@ -37,13 +37,6 @@
   "dependencies": {
     "@mozilla/readability": "^0.6.0",
     "jsdom": "^29.1.1",
-    "katex": "0.18.1",
-    "react": "19.2.7",
-    "react-dom": "19.2.7",
-    "reicon-react": "1.1.302",
-    "slate": "0.126.0",
-    "slate-history": "0.113.1",
-    "slate-react": "0.126.0",
     "turndown": "^7.2.4"
   },
   "devDependencies": {
@@ -53,6 +46,13 @@
     "@vitejs/plugin-react": "6.0.3",
     "concurrently": "9.2.4",
     "electron": "43.1.1",
+    "katex": "0.18.1",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "reicon-react": "1.1.302",
+    "slate": "0.126.0",
+    "slate-history": "0.113.1",
+    "slate-react": "0.126.0",
     "tsx": "^4.23.1",
     "typescript": "7.0.2",
     "vite": "8.1.5",

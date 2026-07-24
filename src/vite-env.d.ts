@@ -15,6 +15,8 @@ type NoteDownUpdateState = {
   currentVersion: string
   latestVersion?: string
   progress?: number
+  transferredBytes?: number
+  totalBytes?: number
   message?: string
 }
 type NoteDownBackupSummary = {

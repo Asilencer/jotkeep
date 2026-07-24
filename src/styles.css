@@ -664,31 +664,74 @@ kbd {
 }
 
 .profile-footer > .update-button {
-  position: relative;
   color: var(--accent-strong);
 }
 
-.profile-footer > .update-button::after {
-  position: absolute;
-  top: 5px;
-  right: 5px;
-  width: 5px;
-  height: 5px;
-  border: 1px solid var(--sidebar-panel-color);
-  border-radius: 50%;
-  background: currentcolor;
-  content: '';
+.profile-footer > .update-button.is-downloading:disabled {
+  opacity: 1;
 }
 
-.profile-footer > .update-button.is-downloading::after {
-  animation: update-indicator-pulse 900ms ease-in-out infinite alternate;
+.profile-footer > .update-button.is-downloading svg {
+  animation: update-icon-turn 1.4s linear infinite;
 }
 
-@keyframes update-indicator-pulse {
+@keyframes update-icon-turn {
   to {
-    opacity: 0.3;
-    transform: scale(0.72);
+    transform: rotate(360deg);
   }
+}
+
+.update-progress {
+  flex: 0 0 auto;
+  margin: 0 12px 5px;
+  color: var(--muted);
+  font-size: var(--ui-font-size-caption);
+}
+
+.update-progress-copy {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+
+.update-progress-copy > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.update-progress-copy > strong {
+  flex: 0 0 auto;
+  color: var(--text-soft);
+  font-weight: 620;
+  font-variant-numeric: tabular-nums;
+}
+
+.update-progress-track,
+.update-progress-value {
+  display: block;
+  height: 3px;
+}
+
+.update-progress-track {
+  overflow: hidden;
+  background: var(--line-strong);
+}
+
+.update-progress-value {
+  background: var(--accent-strong);
+  transition: width 180ms linear;
+}
+
+.update-progress-bytes {
+  display: block;
+  margin-top: 4px;
+  color: var(--faint);
+  font-size: var(--ui-font-size-xs);
+  font-variant-numeric: tabular-nums;
 }
 
 .sidebar-collapsed .sidebar-titlebar {
@@ -753,6 +796,20 @@ kbd {
   width: 32px;
   height: 32px;
   flex-basis: 32px;
+}
+
+.sidebar-collapsed .update-progress {
+  width: 52px;
+  margin-inline: auto;
+}
+
+.sidebar-collapsed .update-progress-copy {
+  justify-content: center;
+}
+
+.sidebar-collapsed .update-progress-copy > span,
+.sidebar-collapsed .update-progress-bytes {
+  display: none;
 }
 
 .sidebar-collapsed .nav-section {
@@ -7363,6 +7420,20 @@ kbd {
     width: 32px;
     height: 32px;
     flex-basis: 32px;
+  }
+
+  .app-shell:not(.sidebar-collapsed) .update-progress {
+    width: 52px;
+    margin-inline: auto;
+  }
+
+  .app-shell:not(.sidebar-collapsed) .update-progress-copy {
+    justify-content: center;
+  }
+
+  .app-shell:not(.sidebar-collapsed) .update-progress-copy > span,
+  .app-shell:not(.sidebar-collapsed) .update-progress-bytes {
+    display: none;
   }
 
   .heading-copy > span {

@@ -168,7 +168,10 @@ export const downloadGithubUpdate = async ({
       if (transferred > update.asset.bytes) throw new Error('GitHub update is larger than expected')
       hash.update(value)
       await file.write(value)
-      const progress = Math.floor((transferred / update.asset.bytes) * 100)
+      const progress = Math.min(
+        99.9,
+        Math.round((transferred / update.asset.bytes) * 1000) / 10,
+      )
       if (progress !== lastProgress) {
         lastProgress = progress
         onProgress?.({ progress, transferred, total: update.asset.bytes })

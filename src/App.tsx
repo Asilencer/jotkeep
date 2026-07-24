@@ -16,6 +16,7 @@ import { createPortal } from 'react-dom'
 import {
   Activity,
   ArchiveBox,
+  ArrowDownCircle,
   ArrowLeft5,
   Bookmark,
   Calendar,
@@ -29,7 +30,6 @@ import {
   CloudRemove,
   Copy,
   DocumentText,
-  Download,
   Edit,
   Folder,
   FolderOpen,
@@ -334,6 +334,8 @@ const routeKey = (route: Route) => {
   return route.page
 }
 
+const formatUpdateSize = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MB`
+
 type IconButtonProps = {
   label: string
   children: ReactNode
@@ -410,14 +412,22 @@ function Sidebar({
     updateState?.latestVersion
     && ['available', 'downloading', 'ready', 'error'].includes(updateState.status),
   )
+  const updateProgress = Math.min(100, Math.max(0, updateState?.progress ?? 0))
+  const updateProgressValue = updateProgress.toFixed(1).replace(/\.0$/, '')
+  const updateProgressLabel = `${updateProgressValue}%`
+  const updateBytesLabel = updateState?.totalBytes
+    ? `${formatUpdateSize(updateState.transferredBytes ?? 0)} / ${formatUpdateSize(updateState.totalBytes)}`
+    : ''
   const updateLabel = updateState?.status === 'downloading'
     ? t('正在下载 Jotkeep {version}（{progress}%）', {
         version: updateState.latestVersion ?? '',
-        progress: updateState.progress ?? 0,
+        progress: updateProgressValue,
       })
     : updateState?.status === 'ready'
       ? t('打开 Jotkeep {version} 安装包', { version: updateState.latestVersion ?? '' })
-      : t('更新到 Jotkeep {version}', { version: updateState?.latestVersion ?? '' })
+      : updateState?.status === 'error'
+        ? t('重新下载 Jotkeep {version}', { version: updateState.latestVersion ?? '' })
+        : t('更新到 Jotkeep {version}', { version: updateState?.latestVersion ?? '' })
 
   return (
     <aside className="sidebar" aria-label={t('主导航')}>
@@ -508,6 +518,35 @@ function Sidebar({
         />
       </nav>
 
+      {updateState?.status === 'downloading' && (
+        <div
+          className="update-progress"
+          role="progressbar"
+          aria-label={updateLabel}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={updateProgress}
+        >
+          <div className="update-progress-copy">
+            <span>
+              {t('正在下载 Jotkeep {version}', {
+                version: updateState.latestVersion ?? '',
+              })}
+            </span>
+            <strong>{updateProgressLabel}</strong>
+          </div>
+          <span className="update-progress-track" aria-hidden>
+            <span
+              className="update-progress-value"
+              style={{ width: `${updateProgress}%` }}
+            />
+          </span>
+          {updateBytesLabel && (
+            <span className="update-progress-bytes">{updateBytesLabel}</span>
+          )}
+        </div>
+      )}
+
       <div className={`profile-footer${updateVisible ? ' has-update' : ''}`}>
         <button
           className={`profile-identity${route.page === 'profile' ? ' is-active' : ''}`}
@@ -528,9 +567,16 @@ function Sidebar({
           <IconButton
             className={`update-button is-${updateState?.status}`}
             label={updateLabel}
+            disabled={updateState?.status === 'downloading'}
             onClick={onDownloadUpdate}
           >
-            <Download size={16} />
+            {updateState?.status === 'ready' ? (
+              <CheckCircle size={17} />
+            ) : updateState?.status === 'downloading' ? (
+              <Refresh size={17} />
+            ) : (
+              <ArrowDownCircle size={17} />
+            )}
           </IconButton>
         )}
         <IconButton label="设置" onClick={onOpenSettings}>

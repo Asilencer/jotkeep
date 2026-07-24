@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { cpSync, mkdirSync } from 'node:fs'
+import { cpSync, mkdirSync, readdirSync, rmSync } from 'node:fs'
 import { packager } from '@electron/packager'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -9,6 +9,7 @@ const outputDirectory = path.join(rootDirectory, 'release')
 const excludedRoots = new Set([
   '.git',
   '.notedown',
+  'artifacts',
   'assets',
   'clips',
   'daily',
@@ -18,8 +19,40 @@ const excludedRoots = new Set([
   'release',
   'scripts',
   'src',
+  'tests',
 ])
-const excludedFiles = new Set(['index.html', 'tsconfig.json', 'vite.config.ts'])
+const excludedFiles = new Set([
+  'README.en.md',
+  'README.md',
+  'index.html',
+  'package-lock.json',
+  'tsconfig.json',
+  'vite.config.ts',
+])
+const retainedElectronLocales = new Set(['en.lproj', 'zh_CN.lproj', 'zh_TW.lproj'])
+
+const removeUnusedElectronLocales = ({ buildPath, platform }) => {
+  if (platform !== 'darwin') return
+  const resourcesDirectory = path.join(
+    buildPath,
+    'Electron.app',
+    'Contents',
+    'Frameworks',
+    'Electron Framework.framework',
+    'Versions',
+    'A',
+    'Resources',
+  )
+  for (const entry of readdirSync(resourcesDirectory, { withFileTypes: true })) {
+    if (
+      entry.isDirectory()
+      && entry.name.endsWith('.lproj')
+      && !retainedElectronLocales.has(entry.name)
+    ) {
+      rmSync(path.join(resourcesDirectory, entry.name), { recursive: true, force: true })
+    }
+  }
+}
 
 const outputPaths = await packager({
   dir: rootDirectory,
@@ -32,9 +65,10 @@ const outputPaths = await packager({
   helperBundleId: 'com.notedown.app.helper',
   appCategoryType: 'public.app-category.productivity',
   appCopyright: 'Copyright © 2026 Jotkeep',
-  appVersion: '0.2.3',
-  buildVersion: '4',
+  appVersion: '0.2.4',
+  buildVersion: '5',
   asar: true,
+  afterExtract: [removeUnusedElectronLocales],
   prune: true,
   overwrite: true,
   icon: path.join(rootDirectory, 'assets', 'app-icon.icns'),
@@ -54,7 +88,9 @@ const outputPaths = await packager({
       : filePath.replace(/^[/\\]+/, '')
     if (!relativePath) return false
     if (
-      relativePath === 'node_modules/.vite'
+      relativePath === 'node_modules/.bin'
+      || relativePath.startsWith(`node_modules/.bin${path.sep}`)
+      || relativePath === 'node_modules/.vite'
       || relativePath.startsWith(`node_modules/.vite${path.sep}`)
     ) {
       return true

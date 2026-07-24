@@ -2053,6 +2053,46 @@ function BookmarkBlock({ element, children }: { element: BookmarkElement; childr
   )
 }
 
+const siblingElement = (
+  editor: NoteEditor,
+  path: number[],
+  direction: -1 | 1,
+): [NoteElement, number[]] | null => {
+  const parentPath = Path.parent(path)
+  const parent = Node.get(editor, parentPath)
+  if (!Editor.isEditor(parent) && !SlateElement.isElement(parent)) return null
+  const targetIndex = path.at(-1)! + direction
+  if (targetIndex < 0 || targetIndex >= parent.children.length) return null
+  const targetPath = [...parentPath, targetIndex]
+  const target = Node.get(editor, targetPath)
+  return isElement(target) ? [target, targetPath] : null
+}
+
+const selectionIsAtVerticalEdge = (
+  editor: NoteEditor,
+  path: number[],
+  direction: -1 | 1,
+) => {
+  if (!editor.selection) return false
+  try {
+    const caretRect = ReactEditor.toDOMRange(editor, editor.selection).getBoundingClientRect()
+    const blockRects = Array.from(
+      ReactEditor.toDOMRange(editor, Editor.range(editor, path)).getClientRects(),
+    ).filter((rect) => rect.height > 0)
+    if (caretRect.height > 0 && blockRects.length > 0) {
+      const edge = direction < 0
+        ? Math.min(...blockRects.map((rect) => rect.top))
+        : Math.max(...blockRects.map((rect) => rect.bottom))
+      return direction < 0 ? caretRect.top <= edge + 1 : caretRect.bottom >= edge - 1
+    }
+  } catch {
+    // DOM 选区尚未同步时退回模型边界，避免误抢多行文本内部的上下键。
+  }
+  return direction < 0
+    ? Editor.isStart(editor, editor.selection.anchor, path)
+    : Editor.isEnd(editor, editor.selection.anchor, path)
+}
+
 function TaskBlock({ element, children }: { element: TaskElement; children: ReactNode }) {
   const editor = useSlateStatic()
   const selected = useSelected()
@@ -2148,6 +2188,59 @@ function TaskBlock({ element, children }: { element: TaskElement; children: Reac
     focusElementEnd(editor, targetPath, target)
   }
 
+  const moveBetweenBlocks = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (
+      !['ArrowUp', 'ArrowDown'].includes(event.key)
+      || event.altKey
+      || event.ctrlKey
+      || event.metaKey
+      || event.shiftKey
+      || event.nativeEvent.isComposing
+      || isComposingRef.current
+    ) {
+      return false
+    }
+    const input = event.currentTarget
+    const start = input.selectionStart ?? 0
+    const end = input.selectionEnd ?? start
+    if (start !== end) return false
+
+    const style = window.getComputedStyle(input)
+    const contentHeight = input.scrollHeight
+      - Number.parseFloat(style.paddingTop)
+      - Number.parseFloat(style.paddingBottom)
+    const singleVisualLine = contentHeight <= Number.parseFloat(style.lineHeight) + 1
+    const atOuterBoundary = event.key === 'ArrowUp'
+      ? start === 0
+      : end === input.value.length
+    if (!singleVisualLine && !atOuterBoundary) return false
+
+    const path = ReactEditor.findPath(editor, element)
+    const direction = event.key === 'ArrowUp' ? -1 : 1
+    const sibling = siblingElement(editor, path, direction)
+    if (!sibling) return false
+    const [target, targetPath] = sibling
+
+    event.preventDefault()
+    event.stopPropagation()
+    if (target.type !== 'task') {
+      if (direction < 0) focusElementEnd(editor, targetPath, target)
+      else focusElementStart(editor, targetPath, target)
+      return true
+    }
+
+    const offset = Math.min(start, target.title.length)
+    Transforms.select(editor, targetPath)
+    queueMicrotask(() => {
+      const control = document.querySelector<HTMLTextAreaElement>(
+        `[data-block-id="${target.id}"] textarea[aria-label="任务标题"]`,
+      )
+      control?.focus()
+      control?.setSelectionRange(offset, offset)
+    })
+    return true
+  }
+
   return (
     <div
       className={`docx-task-card${selected ? ' is-selected' : ''}`}
@@ -2179,6 +2272,7 @@ function TaskBlock({ element, children }: { element: TaskElement; children: Reac
             changeTitle(event.currentTarget.value)
           }}
           onKeyDown={(event) => {
+            if (moveBetweenBlocks(event)) return
             insertFollowingTask(event)
             removeEmptyTask(event)
           }}
@@ -3694,6 +3788,23 @@ function SlateDocumentEditor({
     if (!entry || !editor.selection || !Range.isCollapsed(editor.selection)) return
     const [element, path] = entry
 
+    if (
+      ['ArrowUp', 'ArrowDown'].includes(event.key)
+      && !event.altKey
+      && !event.ctrlKey
+      && !event.metaKey
+      && !event.shiftKey
+    ) {
+      const direction = event.key === 'ArrowUp' ? -1 : 1
+      const sibling = siblingElement(editor, path, direction)
+      if (sibling?.[0].type === 'task' && selectionIsAtVerticalEdge(editor, path, direction)) {
+        event.preventDefault()
+        if (direction < 0) focusElementEnd(editor, sibling[1], sibling[0])
+        else focusElementStart(editor, sibling[1], sibling[0])
+        return
+      }
+    }
+
     if (event.key === 'Tab' && element.type === 'code') {
       event.preventDefault()
       Editor.insertText(editor, '  ')
@@ -3866,24 +3977,23 @@ function SlateDocumentEditor({
     )
 
   const insertParagraphAtGap = (event: ReactMouseEvent<HTMLDivElement>) => {
-    if (
-      event.target instanceof Element
-      && event.target.closest('a, button, input, textarea, [data-slate-string], [data-slate-zero-width]')
-    ) {
+    const target = event.target instanceof Element ? event.target : null
+    if (target?.closest(
+      'a, button, input, select, textarea:not(.docx-task-title), '
+      + '[data-slate-string], [data-slate-zero-width]',
+    )) {
       return
     }
     const blocks = canvasBlocks(event.currentTarget)
+    const boundaryHitSlop = target?.closest('textarea.docx-task-title') ? 7 : 10
     const nextIndex = blocks.findIndex((block, index) => {
       if (index === 0) return false
       const previousBottom = blocks[index - 1].getBoundingClientRect().bottom
       const nextTop = block.getBoundingClientRect().top
       const gap = nextTop - previousBottom
       if (gap < -1) return false
-      const boundaryInset = gap <= 0 ? 3 : 0
-      return (
-        event.clientY >= previousBottom - boundaryInset
-        && event.clientY <= nextTop + boundaryInset
-      )
+      const boundary = (previousBottom + nextTop) / 2
+      return Math.abs(event.clientY - boundary) <= Math.max(boundaryHitSlop, gap / 2)
     })
     if (nextIndex <= 0) return
 

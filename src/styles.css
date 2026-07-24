@@ -2413,44 +2413,7 @@ kbd {
 }
 
 .docx-block + .docx-block {
-  margin-top: 8px;
-}
-
-.docx-block.type-paragraph + .docx-block.type-paragraph {
-  margin-top: 4px;
-}
-
-.docx-block.type-bullet + .docx-block.type-bullet,
-.docx-block.type-numbered + .docx-block.type-numbered,
-.docx-block.type-todo + .docx-block.type-todo,
-.docx-block.type-task + .docx-block.type-task,
-.docx-block.type-quote + .docx-block.type-quote {
   margin-top: 0;
-}
-
-.docx-block:is(
-  .type-callout,
-  .type-code,
-  .type-raw,
-  .type-table,
-  .type-columns,
-  .type-equation,
-  .type-image,
-  .type-media,
-  .type-bookmark
-) + .docx-block,
-.docx-block + .docx-block:is(
-  .type-callout,
-  .type-code,
-  .type-raw,
-  .type-table,
-  .type-columns,
-  .type-equation,
-  .type-image,
-  .type-media,
-  .type-bookmark
-) {
-  margin-top: 12px;
 }
 
 .docx-block::before {
@@ -2625,22 +2588,6 @@ kbd {
 .docx-list-line > div,
 .docx-todo-line > div {
   padding-block: max(0px, calc((29px - 1lh) / 2));
-}
-
-.docx-block.type-heading {
-  margin-top: 20px;
-}
-
-.docx-block + .docx-block.type-heading {
-  margin-top: 20px;
-}
-
-.docx-block.type-heading.heading-level-1 {
-  margin-top: 26px;
-}
-
-.docx-block + .docx-block.type-heading.heading-level-1 {
-  margin-top: 26px;
 }
 
 .docx-heading {

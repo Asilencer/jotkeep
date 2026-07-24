@@ -490,6 +490,7 @@ const createStableEditor = () => withNoteDown(withHistory(withReact(createEditor
 type CommandMenuState = {
   mode: 'slash' | 'manual'
   blockPath: number[]
+  activeCommandId?: SlashCommandId
   range?: BaseRange
   query: string
   left: number
@@ -595,6 +596,14 @@ const commandMenuPageSize = 8
 const commandMenuWidth = 320
 const commandMenuMaxHeight = 360
 const floatingInset = 12
+
+const commandIdForElement = (element: NoteElement): SlashCommandId | undefined => {
+  if (element.type === 'heading') return `heading${element.level}` as SlashCommandId
+  if (slashCommands.some((command) => command.id === element.type)) {
+    return element.type as SlashCommandId
+  }
+  return undefined
+}
 
 const getCommandMenuPosition = (rect: DOMRect) => {
   const width = Math.min(commandMenuWidth, window.innerWidth - floatingInset * 2)
@@ -2685,8 +2694,9 @@ function NoteElementRenderer({
       let number = 1
       for (let cursor = path[0] - 1; cursor >= 0; cursor -= 1) {
         const sibling = editor.children[cursor]
-        if (!isElement(sibling) || sibling.type !== 'numbered' || sibling.indent !== element.indent) break
-        number += 1
+        if (!isElement(sibling) || sibling.type !== 'numbered') break
+        if (sibling.indent < element.indent) break
+        if (sibling.indent === element.indent) number += 1
       }
       marker = `${number}.`
     }
@@ -3326,6 +3336,7 @@ function SlateDocumentEditor({
   const isComposingRef = useRef(false)
   const compositionChangedRef = useRef(false)
   const compositionFlushFrameRef = useRef<number | null>(null)
+  const compositionSelectionRef = useRef<BaseRange | null>(null)
   const dismissedInlineRangeRef = useRef<BaseRange | null>(null)
   const onTasksChangeRef = useRef(onTasksChange)
   onTasksChangeRef.current = onTasksChange
@@ -3364,10 +3375,18 @@ function SlateDocumentEditor({
       .sort((left, right) => rank(left) - rank(right))
   }, [editor, enabledCommands, menu])
 
-  useEffect(
-    () => setActiveCommandIndex(0),
-    [menu?.query, menu?.mode, menu?.blockPath.join('.')],
-  )
+  useEffect(() => {
+    const index = menu?.activeCommandId
+      ? visibleCommands.findIndex((command) => command.id === menu.activeCommandId)
+      : -1
+    setActiveCommandIndex(Math.max(0, index))
+  }, [
+    menu?.activeCommandId,
+    menu?.query,
+    menu?.mode,
+    menu?.blockPath.join('.'),
+    visibleCommands,
+  ])
 
   useEffect(() => () => {
     if (compositionFlushFrameRef.current !== null) {
@@ -3420,13 +3439,15 @@ function SlateDocumentEditor({
   const openManualMenu = useCallback((path: number[], rect: DOMRect) => {
     setInlineToolbar(null)
     setBlockActions(null)
+    const element = Node.get(editor, path) as NoteElement
     setMenu({
       mode: 'manual',
       blockPath: path,
+      activeCommandId: commandIdForElement(element),
       query: '',
       ...getCommandMenuPosition(rect),
     })
-  }, [])
+  }, [editor])
 
   const openBlockActions = useCallback((path: number[], rect: DOMRect) => {
     setMenu(null)
@@ -3861,27 +3882,7 @@ function SlateDocumentEditor({
       }
       if (element.type === 'heading') {
         event.preventDefault()
-        const nextPath = Path.next(path)
-        if (Editor.isEnd(editor, editor.selection.anchor, path)) {
-          try {
-            const next = Node.get(editor, nextPath) as NoteElement
-            if (next.type === 'paragraph' && Node.string(next) === '') {
-              focusElementStart(editor, nextPath, next)
-              return
-            }
-          } catch {
-            // 没有可复用的空正文时，继续执行标题的正常拆分。
-          }
-        }
         editor.insertBreak()
-        const nextEntry = getEditableBlockEntry(editor)
-        if (nextEntry) {
-          Transforms.setNodes(
-            editor,
-            { type: 'paragraph', id: createElementId() },
-            { at: nextEntry[1] },
-          )
-        }
         return
       }
       event.preventDefault()
@@ -4037,8 +4038,11 @@ function SlateDocumentEditor({
         if (hasDocumentChange) onTasksChangeRef.current?.(collectDocumentTasks(value))
         const composing = isComposingRef.current || composingEditors.has(editor)
         if (hasDocumentChange) {
-          if (composing) compositionChangedRef.current = true
-          else if (compositionFlushFrameRef.current === null) onValueChange(value)
+          if (composing || compositionFlushFrameRef.current !== null) {
+            compositionChangedRef.current = true
+          } else {
+            onValueChange(value)
+          }
         }
         if (composing || compositionFlushFrameRef.current !== null) return
         window.requestAnimationFrame(() => {
@@ -4062,18 +4066,33 @@ function SlateDocumentEditor({
             compositionFlushFrameRef.current = null
           }
           compositionChangedRef.current = hadPendingFlush
+          compositionSelectionRef.current = null
           isComposingRef.current = true
           composingEditors.add(editor)
         }}
         onCompositionEnd={() => {
+          const domSelection = window.getSelection()
+          compositionSelectionRef.current = domSelection
+            ? ReactEditor.toSlateRange(editor, domSelection, {
+                exactMatch: false,
+                suppressThrow: true,
+              })
+            : null
           isComposingRef.current = false
           composingEditors.delete(editor)
-          if (!compositionChangedRef.current) return
-          compositionChangedRef.current = false
           compositionFlushFrameRef.current = window.requestAnimationFrame(() => {
             compositionFlushFrameRef.current = null
-            onValueChange(editor.children)
-            syncEditorUI(true)
+            const changed = compositionChangedRef.current
+            compositionChangedRef.current = false
+            if (changed) {
+              onValueChange(editor.children)
+              syncEditorUI(true)
+            }
+            const selection = compositionSelectionRef.current
+            compositionSelectionRef.current = null
+            if (!selection) return
+            Transforms.select(editor, selection)
+            ReactEditor.focus(editor)
           })
         }}
         onDOMBeforeInput={(event) => {

@@ -42,6 +42,7 @@ import {
   useState,
   type CSSProperties,
   type KeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react'
@@ -461,7 +462,7 @@ function withNoteDown(editor: NoteEditor) {
     const [node, path] = entry
     if (Editor.isEditor(node)) {
       const last = node.children.at(-1)
-      if (!last || (isElement(last) && last.type !== 'paragraph' && isVoidBlock(last))) {
+      if (!last) {
         Transforms.insertNodes(editor, createParagraph(), { at: [node.children.length] })
         return
       }
@@ -2056,7 +2057,7 @@ function TaskBlock({ element, children }: { element: TaskElement; children: Reac
   const editor = useSlateStatic()
   const selected = useSelected()
   const [title, setTitle] = useState(element.title)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const titleRef = useRef<HTMLTextAreaElement>(null)
   const isComposingRef = useRef(false)
   const pendingSelectionRef = useRef<{ start: number; end: number } | null>(null)
 
@@ -2065,17 +2066,21 @@ function TaskBlock({ element, children }: { element: TaskElement; children: Reac
   }, [element.title])
 
   useLayoutEffect(() => {
-    const input = inputRef.current
+    const input = titleRef.current
+    if (input) {
+      input.style.height = '0'
+      input.style.height = `${input.scrollHeight}px`
+    }
     const selection = pendingSelectionRef.current
     pendingSelectionRef.current = null
     if (!input || !selection || document.activeElement !== input) return
     input.setSelectionRange(selection.start, selection.end)
-  }, [element.title])
+  }, [element.title, title])
 
   const changeTitle = (value: string) => {
     setTitle(value)
     if (isComposingRef.current) return
-    const input = inputRef.current
+    const input = titleRef.current
     if (input && input.selectionStart !== null && input.selectionEnd !== null) {
       pendingSelectionRef.current = {
         start: input.selectionStart,
@@ -2083,6 +2088,64 @@ function TaskBlock({ element, children }: { element: TaskElement; children: Reac
       }
     }
     updateElement(editor, element, { title: value })
+  }
+
+  const insertFollowingTask = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (
+      event.key !== 'Enter'
+      || event.shiftKey
+      || event.nativeEvent.isComposing
+      || isComposingRef.current
+    ) {
+      return
+    }
+    event.preventDefault()
+    event.stopPropagation()
+    const value = event.currentTarget.value
+    const start = event.currentTarget.selectionStart ?? value.length
+    const end = event.currentTarget.selectionEnd ?? start
+    const currentTitle = value.slice(0, start)
+    const nextTask = createBlockForCommand('task', value.slice(end)) as TaskElement
+    const path = ReactEditor.findPath(editor, element)
+    const nextPath = Path.next(path)
+    HistoryEditor.withNewBatch(editor, () => {
+      setTitle(currentTitle)
+      pendingSelectionRef.current = null
+      updateElement(editor, element, { title: currentTitle })
+      Transforms.insertNodes(editor, nextTask, { at: nextPath })
+    })
+    focusElementStart(editor, nextPath, nextTask)
+  }
+
+  const removeEmptyTask = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (
+      event.key !== 'Backspace'
+      || event.nativeEvent.isComposing
+      || isComposingRef.current
+      || event.currentTarget.value
+      || event.currentTarget.selectionStart !== 0
+      || event.currentTarget.selectionEnd !== 0
+    ) {
+      return
+    }
+    event.preventDefault()
+    event.stopPropagation()
+    const path = ReactEditor.findPath(editor, element)
+    const parentPath = Path.parent(path)
+    const previousPath = path.at(-1)! > 0 ? Path.previous(path) : null
+    Transforms.removeNodes(editor, { at: path })
+    const parent = Node.get(editor, parentPath)
+    if (!Editor.isEditor(parent) && !SlateElement.isElement(parent)) return
+    if (parent.children.length === 0) {
+      const paragraph = createParagraph()
+      const paragraphPath = [...parentPath, 0]
+      Transforms.insertNodes(editor, paragraph, { at: paragraphPath })
+      focusElementStart(editor, paragraphPath, paragraph)
+      return
+    }
+    const targetPath = previousPath ?? [...parentPath, 0]
+    const target = Node.get(editor, targetPath) as NoteElement
+    focusElementEnd(editor, targetPath, target)
   }
 
   return (
@@ -2100,10 +2163,11 @@ function TaskBlock({ element, children }: { element: TaskElement; children: Reac
         {element.checked && <Check size={12} />}
       </button>
       <div className="docx-task-content">
-        <input
-          ref={inputRef}
+        <textarea
+          ref={titleRef}
           className="docx-task-title"
           value={title}
+          rows={1}
           aria-label="任务标题"
           placeholder="任务标题"
           onChange={(event) => changeTitle(event.currentTarget.value)}
@@ -2114,15 +2178,23 @@ function TaskBlock({ element, children }: { element: TaskElement; children: Reac
             isComposingRef.current = false
             changeTitle(event.currentTarget.value)
           }}
-          onKeyDown={(event) => exitSingleLineControlOnEnter(editor, element, event)}
+          onKeyDown={(event) => {
+            insertFollowingTask(event)
+            removeEmptyTask(event)
+          }}
         />
-        <DateTimeInput
-          className="is-task"
-          value={element.due === '-' ? '' : element.due}
-          label="截止时间"
-          onChange={(due) => updateElement(editor, element, { due: due || '-' })}
-          onKeyDown={(event) => exitSingleLineControlOnEnter(editor, element, event)}
-        />
+        <div className="docx-task-flow">
+          <span className="docx-task-title-mirror" aria-hidden>
+            {title || '任务标题'}
+          </span>
+          <DateTimeInput
+            className="is-task"
+            value={element.due === '-' ? '' : element.due}
+            label="截止时间"
+            onChange={(due) => updateElement(editor, element, { due: due || '-' })}
+            onKeyDown={(event) => exitSingleLineControlOnEnter(editor, element, event)}
+          />
+        </div>
       </div>
       <VoidChildren>{children}</VoidChildren>
     </div>
@@ -2871,7 +2943,7 @@ const focusElementStart = (editor: NoteEditor, path: number[], element: NoteElem
         image: '.docx-asset-empty',
         media: '.docx-asset-empty',
         bookmark: 'input[aria-label="网页地址"]',
-        task: 'input[aria-label="任务标题"]',
+        task: 'textarea[aria-label="任务标题"]',
         button: 'input[aria-label="按钮文字"]',
         raw: 'textarea[aria-label="原始 Markdown"]',
       }
@@ -2880,6 +2952,9 @@ const focusElementStart = (editor: NoteEditor, path: number[], element: NoteElem
         ? document.querySelector<HTMLElement>(`[data-block-id="${element.id}"] ${selector}`)
         : null
       control?.focus()
+      if (control instanceof HTMLTextAreaElement) {
+        control.setSelectionRange(0, 0)
+      }
       if (
         control instanceof HTMLInputElement &&
         ['text', 'url', 'search'].includes(control.type)
@@ -2889,6 +2964,30 @@ const focusElementStart = (editor: NoteEditor, path: number[], element: NoteElem
     } catch {
       ReactEditor.focus(editor)
     }
+  })
+}
+
+const focusElementEnd = (editor: NoteEditor, path: number[], element: NoteElement) => {
+  const selectTarget = () => {
+    if (isVoidBlock(element)) Transforms.select(editor, path)
+    else Transforms.select(editor, Editor.end(editor, path))
+  }
+
+  selectTarget()
+  queueMicrotask(() => {
+    selectTarget()
+    ReactEditor.focus(editor)
+  })
+  window.requestAnimationFrame(() => {
+    if (element.type !== 'task') {
+      ReactEditor.focus(editor)
+      return
+    }
+    const control = document.querySelector<HTMLTextAreaElement>(
+      `[data-block-id="${element.id}"] textarea[aria-label="任务标题"]`,
+    )
+    control?.focus()
+    control?.setSelectionRange(control.value.length, control.value.length)
   })
 }
 
@@ -3673,11 +3772,28 @@ function SlateDocumentEditor({
     }
 
     if (event.key === 'Backspace' && Editor.isStart(editor, editor.selection.anchor, path)) {
-      if (path.length === 1 && path[0] > 0) {
+      if (path.at(-1)! > 0) {
         const previousPath = Path.previous(path)
         const previous = Node.get(editor, previousPath)
         if (isElement(previous) && isVoidBlock(previous)) {
           event.preventDefault()
+          if (element.type === 'paragraph' && Node.string(element) === '') {
+            const parentPath = Path.parent(path)
+            const index = path.at(-1)!
+            Transforms.removeNodes(editor, { at: path })
+            const parent = Node.get(editor, parentPath)
+            if (!Editor.isEditor(parent) && !SlateElement.isElement(parent)) return
+            const nextPath = index < parent.children.length
+              ? [...parentPath, index]
+              : previousPath
+            const next = Node.get(editor, nextPath) as NoteElement
+            if (Path.equals(nextPath, previousPath)) {
+              focusElementEnd(editor, nextPath, next)
+            } else {
+              focusElementStart(editor, nextPath, next)
+            }
+            return
+          }
           selectVoidBlock(editor, previousPath)
           return
         }
@@ -3730,8 +3846,46 @@ function SlateDocumentEditor({
     }
   }
 
+  const canvasBlocks = (canvas: HTMLDivElement) =>
+    Array.from(canvas.children).filter(
+      (child): child is HTMLElement =>
+        child instanceof HTMLElement && child.classList.contains('docx-block'),
+    )
+
+  const insertParagraphAtGap = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (
+      event.target instanceof Element
+      && event.target.closest('a, button, input, textarea, [data-slate-string], [data-slate-zero-width]')
+    ) {
+      return
+    }
+    const blocks = canvasBlocks(event.currentTarget)
+    const nextIndex = blocks.findIndex((block, index) => {
+      if (index === 0) return false
+      const previousBottom = blocks[index - 1].getBoundingClientRect().bottom
+      const nextTop = block.getBoundingClientRect().top
+      const gap = nextTop - previousBottom
+      if (gap < -1) return false
+      const boundaryInset = gap <= 0 ? 3 : 0
+      return (
+        event.clientY >= previousBottom - boundaryInset
+        && event.clientY <= nextTop + boundaryInset
+      )
+    })
+    if (nextIndex <= 0) return
+
+    event.preventDefault()
+    event.stopPropagation()
+    const paragraph = createParagraph()
+    const path = [nextIndex]
+    Transforms.insertNodes(editor, paragraph, { at: path })
+    focusElementStart(editor, path, paragraph)
+  }
+
   const focusCanvasEnd = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.target !== event.currentTarget) return
+    const lastBlock = canvasBlocks(event.currentTarget).at(-1)
+    if (lastBlock && event.clientY <= lastBlock.getBoundingClientRect().bottom) return
     event.preventDefault()
 
     let targetPath = [editor.children.length - 1]
@@ -3825,6 +3979,7 @@ function SlateDocumentEditor({
           Editor.insertText(editor, text)
         }}
         onKeyDown={handleKeyDown}
+        onDoubleClick={insertParagraphAtGap}
         onPaste={(event) => {
           const files = Array.from(event.clipboardData.files)
           if (files.length > 0) {

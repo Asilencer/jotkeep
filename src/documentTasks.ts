@@ -22,11 +22,15 @@ export function updateDocumentTaskBlock(
     if (closeIndex < 0) return content
 
     if (value) {
+      const title = value.title
+        .replace(/\r\n?/g, '\n')
+        .split('\n')
+        .map((line) => line.trimEnd())
       lines.splice(
         index,
         closeIndex - index + 1,
         `::: task id=${blockId} checked=${value.checked} due=${value.due || '-'}`,
-        value.title.replace(/\s+/g, ' ').trim(),
+        ...title,
         ':::',
       )
     } else {

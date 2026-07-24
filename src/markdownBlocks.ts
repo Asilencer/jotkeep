@@ -928,7 +928,7 @@ export function parseMarkdown(markdown: string): Descendant[] {
       pushNode({
         id: taskDirective[1] ?? createElementId(),
         type: 'task',
-        title: title.join(' ').trim(),
+        title: title.join('\n').trim(),
         checked: taskDirective[2] === 'true',
         due: taskDirective[3] ?? '',
         children: voidChildren(),

@@ -2005,6 +2005,41 @@ const taskDateGroup = (value: string) => {
   }
 }
 
+const taskTimeValue = (value: string, now: Date) => {
+  const normalized = value.trim()
+  if (!normalized || normalized === '无日期') return Number.POSITIVE_INFINITY
+
+  const iso = normalized.match(/^\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2})?/)?.[0]
+  if (iso) {
+    const timestamp = new Date(iso.replace(' ', 'T')).getTime()
+    if (Number.isFinite(timestamp)) return timestamp
+  }
+
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  if (normalized === '今天') return startOfToday
+  if (normalized === '明天') return startOfToday + 24 * 60 * 60 * 1000
+
+  const weekday = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'].indexOf(normalized)
+  if (weekday >= 0) {
+    const days = (weekday - now.getDay() + 7) % 7
+    return startOfToday + days * 24 * 60 * 60 * 1000
+  }
+
+  const monthDay = normalized.match(/^(\d{1,2})\s*月\s*(\d{1,2})\s*日$/)
+  if (monthDay) {
+    return new Date(now.getFullYear(), Number(monthDay[1]) - 1, Number(monthDay[2])).getTime()
+  }
+  return Number.POSITIVE_INFINITY
+}
+
+const sortTasksByTime = (items: TaskItem[]) => {
+  const now = new Date()
+  return items
+    .map((task, index) => ({ task, index, time: taskTimeValue(task.date, now) }))
+    .sort((left, right) => left.time - right.time || left.index - right.index)
+    .map(({ task }) => task)
+}
+
 function TaskStatusIcon({ status }: { status: TaskItem['status'] }) {
   const StatusIcon = taskStatusIcons[status]
   const label = taskStatusLabels[status]
@@ -2084,6 +2119,7 @@ function TasksPage({
   onDeleteTask: (task: TaskItem, anchor: HTMLElement) => void
 }) {
   const [groupMode, setGroupMode] = useState<TaskGroupMode>('date')
+  const sortedTaskItems = useMemo(() => sortTasksByTime(taskItems), [taskItems])
   const groups =
     groupMode === 'project'
       ? projectItems
@@ -2091,7 +2127,7 @@ function TasksPage({
             id: project.id,
             label: project.name,
             color: project.color,
-            items: taskItems.filter((task) => task.projectId === project.id),
+            items: sortedTaskItems.filter((task) => task.projectId === project.id),
           }))
           .filter((group) => group.items.length > 0)
       : groupMode === 'status'
@@ -2099,15 +2135,15 @@ function TasksPage({
             .map((status) => ({
               id: status,
               label: taskStatusLabels[status],
-              items: taskItems.filter((task) => task.status === status),
+              items: sortedTaskItems.filter((task) => task.status === status),
             }))
             .filter((group) => group.items.length > 0)
-        : [...new Map(taskItems.map((task) => {
+        : [...new Map(sortedTaskItems.map((task) => {
             const group = taskDateGroup(task.date)
             return [group.id, group]
           })).values()].map((group) => ({
             ...group,
-            items: taskItems.filter((task) => taskDateGroup(task.date).id === group.id),
+            items: sortedTaskItems.filter((task) => taskDateGroup(task.date).id === group.id),
           }))
 
   return (

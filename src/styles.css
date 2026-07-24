@@ -2488,9 +2488,13 @@ kbd {
   margin-top: 9.5px;
 }
 
+.docx-block.type-task {
+  --task-line-box: max(30px, 1lh);
+}
+
 .docx-block.type-task > .docx-block-gutter {
-  align-self: center;
-  margin-top: 0;
+  align-self: start;
+  margin-top: calc(6px + (var(--task-line-box) - 26px) / 2);
 }
 
 .docx-block.type-button > .docx-block-gutter,
@@ -3894,39 +3898,74 @@ kbd {
   display: grid;
   min-height: 42px;
   grid-template-columns: 24px minmax(0, 1fr);
-  align-items: center;
+  align-items: start;
   column-gap: 4px;
-  padding: 4px 0;
+  padding: 6px 0;
   background: transparent;
 }
 
 .docx-task-toggle {
+  align-self: start;
   justify-self: center;
-  margin: 0;
+  margin: calc((var(--task-line-box) - 17px) / 2) 0 0;
   transform: none;
   border-radius: 50%;
 }
 
 .docx-task-content {
-  display: flex;
+  display: grid;
   min-width: 0;
-  align-items: center;
-  gap: 6px;
+  align-items: start;
+}
+
+.docx-task-title,
+.docx-task-flow {
+  grid-area: 1 / 1;
 }
 
 .docx-task-title {
-  width: auto;
-  min-width: 5em;
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  min-width: 0;
   max-width: 100%;
-  height: max(30px, 1lh);
-  flex: 0 1 auto;
-  padding: 0;
+  min-height: var(--task-line-box);
+  resize: none;
+  overflow: hidden;
+  padding: max(0px, calc((var(--task-line-box) - 1lh) / 2)) 0;
   border: 0;
   outline: none;
   background: transparent;
-  field-sizing: content;
   font-family: var(--writing-font-family);
   font-size: var(--editor-font-size);
+  line-height: var(--editor-line-height);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.docx-task-flow {
+  min-width: 0;
+  min-height: var(--task-line-box);
+  padding: max(0px, calc((var(--task-line-box) - 1lh) / 2)) 0;
+  font-family: var(--writing-font-family);
+  font-size: var(--editor-font-size);
+  line-height: var(--editor-line-height);
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  white-space: pre-wrap;
+}
+
+.docx-task-title-mirror {
+  color: transparent;
+}
+
+.docx-task-flow > .docx-date-time-input.is-task {
+  position: relative;
+  z-index: 2;
+  margin-left: 6px;
+  pointer-events: auto;
+  vertical-align: middle;
 }
 
 .docx-task-card:has(.docx-task-toggle.is-checked) .docx-task-title {

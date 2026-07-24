@@ -31,3 +31,14 @@ test('修改后的块只规范化当前块', () => {
 
   assert.equal(serializeMarkdown(nodes), '保持 **原始** 格式\n\n已修改')
 })
+
+test('任务标题保留任务内换行', () => {
+  const source = [
+    '::: task id=task-1 checked=false due=-',
+    '第一行',
+    '第二行',
+    ':::',
+  ].join('\n')
+
+  assert.equal(serializeMarkdown(parseMarkdown(source)), source)
+})

@@ -38,6 +38,10 @@ import {
   writeTextAtomically,
 } from './storage-coordinator.mjs'
 import { createFileSnapshotCache } from './file-snapshot-cache.mjs'
+import {
+  downloadGithubUpdate,
+  fetchLatestGithubUpdate,
+} from './github-updater.mjs'
 import { assertIPCArguments } from './ipc-contract.mjs'
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url))
@@ -75,9 +79,137 @@ let taskNotificationsEnabled = true
 let latestTaskItems = []
 let activityWriteQueue = Promise.resolve()
 let interfaceLocale = 'zh-CN'
+let githubUpdate = null
+let downloadedUpdatePath = ''
+let pendingUpdateCheck = null
+let pendingUpdateDownload = null
+let updateState = {
+  status: 'idle',
+  currentVersion: app.getVersion(),
+}
 const taskReminderTimers = new Map()
 const assetPathsByToken = new Map()
 const assetTokensByPath = new Map()
+
+const publishUpdateState = (nextState) => {
+  updateState = nextState
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('updates:state', updateState)
+  }
+  return updateState
+}
+
+const checkForGithubUpdate = async () => {
+  if (pendingUpdateCheck) return pendingUpdateCheck
+  if (process.platform !== 'darwin' || process.arch !== 'arm64') {
+    return publishUpdateState({
+      status: 'unsupported',
+      currentVersion: app.getVersion(),
+    })
+  }
+
+  pendingUpdateCheck = (async () => {
+    const currentVersion = app.getVersion()
+    publishUpdateState({ status: 'checking', currentVersion })
+    try {
+      const result = await fetchLatestGithubUpdate({
+        fetcher: net.fetch,
+        currentVersion,
+        architecture: process.arch,
+      })
+      if (!result.available) {
+        githubUpdate = null
+        downloadedUpdatePath = ''
+        return publishUpdateState({
+          status: 'up-to-date',
+          currentVersion,
+          latestVersion: result.latestVersion,
+        })
+      }
+
+      githubUpdate = result
+      downloadedUpdatePath = ''
+      return publishUpdateState({
+        status: 'available',
+        currentVersion,
+        latestVersion: result.latestVersion,
+      })
+    } catch (error) {
+      console.error('GitHub update check failed', error)
+      return publishUpdateState({
+        status: 'error',
+        currentVersion,
+        message: '无法检查 GitHub 更新。',
+      })
+    }
+  })()
+
+  try {
+    return await pendingUpdateCheck
+  } finally {
+    pendingUpdateCheck = null
+  }
+}
+
+const downloadLatestGithubUpdate = async () => {
+  if (pendingUpdateDownload) return pendingUpdateDownload
+  pendingUpdateDownload = (async () => {
+    if (!githubUpdate) {
+      const checked = await checkForGithubUpdate()
+      if (checked.status !== 'available' || !githubUpdate) return checked
+    }
+
+    const currentVersion = app.getVersion()
+    const latestVersion = githubUpdate.latestVersion
+    try {
+      if (!downloadedUpdatePath) {
+        publishUpdateState({
+          status: 'downloading',
+          currentVersion,
+          latestVersion,
+          progress: 0,
+        })
+        downloadedUpdatePath = await downloadGithubUpdate({
+          fetcher: net.fetch,
+          update: githubUpdate,
+          targetDirectory: path.join(app.getPath('temp'), 'jotkeep-updates'),
+          onProgress: ({ progress }) => {
+            publishUpdateState({
+              status: 'downloading',
+              currentVersion,
+              latestVersion,
+              progress,
+            })
+          },
+        })
+      }
+
+      const error = await shell.openPath(downloadedUpdatePath)
+      if (error) throw new Error(error)
+      return publishUpdateState({
+        status: 'ready',
+        currentVersion,
+        latestVersion,
+      })
+    } catch (error) {
+      console.error('GitHub update download failed', error)
+      downloadedUpdatePath = ''
+      publishUpdateState({
+        status: 'error',
+        currentVersion,
+        latestVersion,
+        message: '新版下载或校验失败。',
+      })
+      throw error
+    }
+  })()
+
+  try {
+    return await pendingUpdateDownload
+  } finally {
+    pendingUpdateDownload = null
+  }
+}
 const documentVersionState = new Map()
 const libraryRedirects = new Map()
 const libraryMigrationResults = new Map()
@@ -2872,6 +3004,10 @@ handleIPC('capture:consume', async () => {
   pendingCaptureRequest = null
   return request
 })
+
+handleIPC('updates:check', async () => checkForGithubUpdate())
+
+handleIPC('updates:download', async () => downloadLatestGithubUpdate())
 
 handleIPC('settings:open-config-directory', async () => {
   const directory = app.getPath('userData')

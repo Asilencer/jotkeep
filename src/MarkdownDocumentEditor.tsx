@@ -81,6 +81,7 @@ import {
   createLink,
   createParagraph,
   createReminder,
+  ensureTaskBlockIds,
   isElement,
   isTextBlock,
   isVoidBlock,
@@ -131,6 +132,32 @@ export type PublishParagraphPayload = {
   id: string
   markdown: string
   preview: string
+}
+export type DocumentTaskSnapshot = {
+  id: string
+  title: string
+  checked: boolean
+  due: string
+}
+
+const collectDocumentTasks = (nodes: readonly Descendant[]) => {
+  const tasks: DocumentTaskSnapshot[] = []
+  const visit = (node: Descendant) => {
+    if (!SlateElement.isElement(node)) return
+    if (node.type === 'task') {
+      tasks.push({
+        id: node.id,
+        title: node.title,
+        checked: node.checked,
+        due: node.due,
+      })
+    }
+    node.children.forEach((child) => {
+      if (SlateElement.isElement(child)) visit(child)
+    })
+  }
+  nodes.forEach(visit)
+  return tasks
 }
 
 const useRuntimeSettings = () => {
@@ -2029,15 +2056,33 @@ function TaskBlock({ element, children }: { element: TaskElement; children: Reac
   const editor = useSlateStatic()
   const selected = useSelected()
   const [title, setTitle] = useState(element.title)
+  const inputRef = useRef<HTMLInputElement>(null)
   const isComposingRef = useRef(false)
+  const pendingSelectionRef = useRef<{ start: number; end: number } | null>(null)
 
   useEffect(() => {
     if (!isComposingRef.current) setTitle(element.title)
   }, [element.title])
 
+  useLayoutEffect(() => {
+    const input = inputRef.current
+    const selection = pendingSelectionRef.current
+    pendingSelectionRef.current = null
+    if (!input || !selection || document.activeElement !== input) return
+    input.setSelectionRange(selection.start, selection.end)
+  }, [element.title])
+
   const changeTitle = (value: string) => {
     setTitle(value)
-    if (!isComposingRef.current) updateElement(editor, element, { title: value })
+    if (isComposingRef.current) return
+    const input = inputRef.current
+    if (input && input.selectionStart !== null && input.selectionEnd !== null) {
+      pendingSelectionRef.current = {
+        start: input.selectionStart,
+        end: input.selectionEnd,
+      }
+    }
+    updateElement(editor, element, { title: value })
   }
 
   return (
@@ -2054,28 +2099,31 @@ function TaskBlock({ element, children }: { element: TaskElement; children: Reac
       >
         {element.checked && <Check size={12} />}
       </button>
-      <input
-        className="docx-task-title"
-        value={title}
-        aria-label="任务标题"
-        placeholder="任务标题"
-        onChange={(event) => changeTitle(event.currentTarget.value)}
-        onCompositionStart={() => {
-          isComposingRef.current = true
-        }}
-        onCompositionEnd={(event) => {
-          isComposingRef.current = false
-          changeTitle(event.currentTarget.value)
-        }}
-        onKeyDown={(event) => exitSingleLineControlOnEnter(editor, element, event)}
-      />
-      <DateTimeInput
-        className="is-task"
-        value={element.due === '-' ? '' : element.due}
-        label="截止时间"
-        onChange={(due) => updateElement(editor, element, { due: due || '-' })}
-        onKeyDown={(event) => exitSingleLineControlOnEnter(editor, element, event)}
-      />
+      <div className="docx-task-content">
+        <input
+          ref={inputRef}
+          className="docx-task-title"
+          value={title}
+          aria-label="任务标题"
+          placeholder="任务标题"
+          onChange={(event) => changeTitle(event.currentTarget.value)}
+          onCompositionStart={() => {
+            isComposingRef.current = true
+          }}
+          onCompositionEnd={(event) => {
+            isComposingRef.current = false
+            changeTitle(event.currentTarget.value)
+          }}
+          onKeyDown={(event) => exitSingleLineControlOnEnter(editor, element, event)}
+        />
+        <DateTimeInput
+          className="is-task"
+          value={element.due === '-' ? '' : element.due}
+          label="截止时间"
+          onChange={(due) => updateElement(editor, element, { due: due || '-' })}
+          onKeyDown={(event) => exitSingleLineControlOnEnter(editor, element, event)}
+        />
+      </div>
       <VoidChildren>{children}</VoidChildren>
     </div>
   )
@@ -2844,6 +2892,11 @@ const focusElementStart = (editor: NoteEditor, path: number[], element: NoteElem
   })
 }
 
+const selectVoidBlock = (editor: NoteEditor, path: number[]) => {
+  Transforms.select(editor, path)
+  queueMicrotask(() => ReactEditor.focus(editor))
+}
+
 const focusInlineControl = (editor: NoteEditor, id: string, ariaLabel: string) => {
   const entry = Array.from(
     Editor.nodes(editor, {
@@ -3036,6 +3089,7 @@ function SlateDocumentEditor({
   initialMarkdown,
   ariaLabel,
   onValueChange,
+  onTasksChange,
   storeAssetFile,
   resolveAssetURL,
   openStoredAsset,
@@ -3048,6 +3102,7 @@ function SlateDocumentEditor({
   initialMarkdown: string
   ariaLabel: string
   onValueChange: (value: Descendant[]) => void
+  onTasksChange?: (tasks: DocumentTaskSnapshot[]) => void
   storeAssetFile: StoreAssetFile
   resolveAssetURL: ResolveAssetURL
   openStoredAsset: OpenStoredAsset
@@ -3063,9 +3118,17 @@ function SlateDocumentEditor({
   const [blockActions, setBlockActions] = useState<BlockActionMenuState | null>(null)
   const [draggingPath, setDraggingPath] = useState<number[] | null>(null)
   const isComposingRef = useRef(false)
+  const compositionChangedRef = useRef(false)
+  const compositionFlushFrameRef = useRef<number | null>(null)
   const dismissedInlineRangeRef = useRef<BaseRange | null>(null)
+  const onTasksChangeRef = useRef(onTasksChange)
+  onTasksChangeRef.current = onTasksChange
 
   const enabledCommands = slashCommands
+
+  useEffect(() => {
+    onTasksChangeRef.current?.(collectDocumentTasks(initialValue))
+  }, [initialValue])
 
   const visibleCommands = useMemo(() => {
     const contextualCommands = menu
@@ -3099,6 +3162,12 @@ function SlateDocumentEditor({
     () => setActiveCommandIndex(0),
     [menu?.query, menu?.mode, menu?.blockPath.join('.')],
   )
+
+  useEffect(() => () => {
+    if (compositionFlushFrameRef.current !== null) {
+      window.cancelAnimationFrame(compositionFlushFrameRef.current)
+    }
+  }, [])
 
   useEffect(() => {
     if (!menu && !inlineToolbar && !blockActions) return
@@ -3399,6 +3468,13 @@ function SlateDocumentEditor({
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.nativeEvent.isComposing || event.key === 'Process' || isComposingRef.current) return
+    if (
+      event.target instanceof HTMLInputElement ||
+      event.target instanceof HTMLTextAreaElement ||
+      event.target instanceof HTMLSelectElement
+    ) {
+      return
+    }
 
     if (menu) {
       if (
@@ -3602,8 +3678,7 @@ function SlateDocumentEditor({
         const previous = Node.get(editor, previousPath)
         if (isElement(previous) && isVoidBlock(previous)) {
           event.preventDefault()
-          Transforms.removeNodes(editor, { at: previousPath })
-          focusElementStart(editor, previousPath, element)
+          selectVoidBlock(editor, previousPath)
           return
         }
       }
@@ -3639,7 +3714,7 @@ function SlateDocumentEditor({
       const next = Node.get(editor, nextPath)
       if (isElement(next) && isVoidBlock(next)) {
         event.preventDefault()
-        Transforms.removeNodes(editor, { at: nextPath })
+        selectVoidBlock(editor, nextPath)
       }
     }
 
@@ -3669,18 +3744,28 @@ function SlateDocumentEditor({
     ReactEditor.focus(editor)
   }
 
+  const syncEditorUI = (hasDocumentChange: boolean) => {
+    if (hasDocumentChange) applyPendingMarkdownShortcut(editor)
+    const slashMenu = getSlashMenuState(editor)
+    setMenu((current) => (current?.mode === 'manual' ? current : slashMenu))
+    if (!editor.selection || Range.isCollapsed(editor.selection)) setInlineToolbar(null)
+  }
+
   return (
     <Slate
       editor={editor}
       initialValue={initialValue}
       onChange={(value) => {
         const hasDocumentChange = editor.operations.some((operation) => operation.type !== 'set_selection')
-        if (hasDocumentChange) onValueChange(value)
+        if (hasDocumentChange) onTasksChangeRef.current?.(collectDocumentTasks(value))
+        const composing = isComposingRef.current || composingEditors.has(editor)
+        if (hasDocumentChange) {
+          if (composing) compositionChangedRef.current = true
+          else if (compositionFlushFrameRef.current === null) onValueChange(value)
+        }
+        if (composing || compositionFlushFrameRef.current !== null) return
         window.requestAnimationFrame(() => {
-          if (hasDocumentChange) applyPendingMarkdownShortcut(editor)
-          const slashMenu = getSlashMenuState(editor)
-          setMenu((current) => (current?.mode === 'manual' ? current : slashMenu))
-          if (!editor.selection || Range.isCollapsed(editor.selection)) setInlineToolbar(null)
+          syncEditorUI(hasDocumentChange)
         })
       }}
     >
@@ -3694,13 +3779,25 @@ function SlateDocumentEditor({
         spellCheck={spellCheck}
         autoFocus={false}
         onCompositionStart={() => {
+          const hadPendingFlush = compositionFlushFrameRef.current !== null
+          if (compositionFlushFrameRef.current !== null) {
+            window.cancelAnimationFrame(compositionFlushFrameRef.current)
+            compositionFlushFrameRef.current = null
+          }
+          compositionChangedRef.current = hadPendingFlush
           isComposingRef.current = true
           composingEditors.add(editor)
         }}
         onCompositionEnd={() => {
           isComposingRef.current = false
           composingEditors.delete(editor)
-          queueMicrotask(() => applyPendingMarkdownShortcut(editor))
+          if (!compositionChangedRef.current) return
+          compositionChangedRef.current = false
+          compositionFlushFrameRef.current = window.requestAnimationFrame(() => {
+            compositionFlushFrameRef.current = null
+            onValueChange(editor.children)
+            syncEditorUI(true)
+          })
         }}
         onDOMBeforeInput={(event) => {
           const text = event.data
@@ -3822,6 +3919,7 @@ function LoadedDocumentEditor({
   beforeTitle,
   metadata,
   onPublishParagraph,
+  onTasksChange,
   ariaLabel,
 }: {
   documentId: string
@@ -3833,11 +3931,16 @@ function LoadedDocumentEditor({
   beforeTitle?: ReactNode
   metadata?: ReactNode | ((value: { tags: string[]; setTags: (tags: string[]) => void }) => ReactNode)
   onPublishParagraph?: (paragraph: PublishParagraphPayload) => void
+  onTasksChange?: (tasks: DocumentTaskSnapshot[]) => void
   ariaLabel: string
 }) {
+  const normalizedInitialMarkdown = useMemo(
+    () => ensureTaskBlockIds(initialMarkdown),
+    [initialMarkdown],
+  )
   const [currentFrontMatter, setCurrentFrontMatter] = useState(frontMatter)
   const [title, setTitle] = useState(initialTitle)
-  const [markdown, setMarkdown] = useState(initialMarkdown)
+  const [markdown, setMarkdown] = useState(normalizedInitialMarkdown)
   const [revision, setRevision] = useState(0)
   const [editorVersion, setEditorVersion] = useState(0)
   const [conflict, setConflict] = useState<DocumentConflict | null>(null)
@@ -3846,6 +3949,7 @@ function LoadedDocumentEditor({
   const baseRevisionRef = useRef(initialRevision)
   const conflictRef = useRef<DocumentConflict | null>(null)
   const saveQueueRef = useRef<Promise<unknown>>(Promise.resolve())
+  const taskIdMigrationPendingRef = useRef(normalizedInitialMarkdown !== initialMarkdown)
   const editorId = `markdown-${documentId.replace(/[^a-z0-9_-]/gi, '-')}`
   const previewStorageKey = `note-down.preview-document.${documentId}`
   const frontMatterPrefix = currentFrontMatter ? `${currentFrontMatter}\n\n` : ''
@@ -4026,6 +4130,12 @@ function LoadedDocumentEditor({
     })
   }
 
+  useEffect(() => {
+    if (!taskIdMigrationPendingRef.current) return
+    taskIdMigrationPendingRef.current = false
+    markChanged()
+  }, [])
+
   const metadataContent = typeof metadata === 'function'
     ? metadata({
         tags: frontMatterTags(currentFrontMatter),
@@ -4070,7 +4180,9 @@ function LoadedDocumentEditor({
           aria-label={`${ariaLabel}源码`}
           spellCheck={editorSettings.spellcheck}
           onChange={(event) => {
-            setMarkdown(event.currentTarget.value)
+            const value = event.currentTarget.value
+            setMarkdown(value)
+            onTasksChange?.(collectDocumentTasks(parseMarkdown(value)))
             markChanged()
           }}
         />
@@ -4087,6 +4199,7 @@ function LoadedDocumentEditor({
           spellCheck={editorSettings.spellcheck}
           pasteMode={editorSettings.pasteMode}
           onPublishParagraph={onPublishParagraph}
+          onTasksChange={onTasksChange}
           onValueChange={(value) => {
             setMarkdown(serializeMarkdown(value))
             markChanged()
@@ -4105,6 +4218,7 @@ export default function MarkdownDocumentEditor({
   beforeTitle,
   metadata,
   onPublishParagraph,
+  onTasksChange,
   ariaLabel,
 }: {
   documentId: string
@@ -4114,6 +4228,7 @@ export default function MarkdownDocumentEditor({
   beforeTitle?: ReactNode
   metadata?: ReactNode | ((value: { tags: string[]; setTags: (tags: string[]) => void }) => ReactNode)
   onPublishParagraph?: (paragraph: PublishParagraphPayload) => void
+  onTasksChange?: (tasks: DocumentTaskSnapshot[]) => void
   ariaLabel: string
 }) {
   useI18n()
@@ -4175,6 +4290,7 @@ export default function MarkdownDocumentEditor({
       beforeTitle={beforeTitle}
       metadata={metadata}
       onPublishParagraph={onPublishParagraph}
+      onTasksChange={onTasksChange}
       ariaLabel={ariaLabel}
     />
   )

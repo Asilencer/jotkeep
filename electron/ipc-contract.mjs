@@ -3,6 +3,8 @@ const channelsWithoutPayload = new Set([
   'navigation:consume-document',
   'settings:choose-directory',
   'settings:open-config-directory',
+  'updates:check',
+  'updates:download',
 ])
 
 const channelsWithStringPayload = new Set([

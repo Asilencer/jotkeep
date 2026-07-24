@@ -469,6 +469,18 @@ export function createElementId() {
   return `node-${Date.now().toString(36)}-${elementSequence.toString(36)}`
 }
 
+export function ensureTaskBlockIds(markdown: string) {
+  const newline = markdown.includes('\r\n') ? '\r\n' : '\n'
+  const lines = markdown.split(newline)
+  let changed = false
+  const next = lines.map((line) => {
+    if (!/^::: task\b/.test(line) || /\sid=\S+/.test(line)) return line
+    changed = true
+    return line.replace(/^::: task\b/, `::: task id=${createElementId()}`)
+  })
+  return changed ? next.join(newline) : markdown
+}
+
 const textChildren = (text = ''): InlineChild[] => [{ text }]
 const voidChildren = (): NoteText[] => [{ text: '' }]
 
@@ -903,7 +915,9 @@ export function parseMarkdown(markdown: string): Descendant[] {
       continue
     }
 
-    const taskDirective = line.match(/^::: task(?:\s+checked=(true|false))?(?:\s+due=(\S+))?\s*$/)
+    const taskDirective = line.match(
+      /^::: task(?:\s+id=(\S+))?(?:\s+checked=(true|false))?(?:\s+due=(\S+))?\s*$/,
+    )
     if (taskDirective) {
       const title: string[] = []
       index += 1
@@ -912,11 +926,11 @@ export function parseMarkdown(markdown: string): Descendant[] {
         index += 1
       }
       pushNode({
-        id: createElementId(),
+        id: taskDirective[1] ?? createElementId(),
         type: 'task',
         title: title.join(' ').trim(),
-        checked: taskDirective[1] === 'true',
-        due: taskDirective[2] ?? '',
+        checked: taskDirective[2] === 'true',
+        due: taskDirective[3] ?? '',
         children: voidChildren(),
       })
       continue
@@ -1260,7 +1274,7 @@ const serializeElement = (element: NoteElement, siblings: NoteElement[], index: 
     return `[bookmark:${element.title || element.url}](${element.url}${description ? ` "${description}"` : ''})`
   }
   if (element.type === 'task') {
-    return `::: task checked=${element.checked} due=${element.due || '-'}\n${element.title}\n:::`
+    return `::: task id=${element.id} checked=${element.checked} due=${element.due || '-'}\n${element.title}\n:::`
   }
   if (element.type === 'button') return `[button:${element.label}](${element.url})`
   if (element.type === 'raw') return element.source

@@ -1,6 +1,6 @@
 {
   "name": "jotkeep",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "license": "MIT",
   "description": "Jotkeep, a local-first Markdown workspace for macOS.",
@@ -25,7 +25,7 @@
     "build:native": "npm run build:weather && npm run build:spotlight && npm run build:share",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.*",
-    "check:electron": "node --check electron/main.mjs && node --check electron/preload.cjs && node --check electron/storage-coordinator.mjs && node --check electron/file-snapshot-cache.mjs && node --check electron/ipc-contract.mjs",
+    "check:electron": "node --check electron/main.mjs && node --check electron/preload.cjs && node --check electron/storage-coordinator.mjs && node --check electron/file-snapshot-cache.mjs && node --check electron/ipc-contract.mjs && node --check electron/github-updater.mjs",
     "check": "npm run typecheck && npm test && npm run check:electron",
     "build": "npm run build:native && npm run typecheck && vite build",
     "start": "electron electron/main.mjs",

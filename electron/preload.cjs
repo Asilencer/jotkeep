@@ -30,6 +30,13 @@ contextBridge.exposeInMainWorld('noteDown', {
     ipcRenderer.on('storage:recovery-created', listener)
     return () => ipcRenderer.removeListener('storage:recovery-created', listener)
   },
+  checkForUpdates: () => ipcRenderer.invoke('updates:check'),
+  downloadUpdate: () => ipcRenderer.invoke('updates:download'),
+  onUpdateState: (callback) => {
+    const listener = (_event, state) => callback(state)
+    ipcRenderer.on('updates:state', listener)
+    return () => ipcRenderer.removeListener('updates:state', listener)
+  },
   chooseDirectory: () => ipcRenderer.invoke('settings:choose-directory'),
   openConfigDirectory: () => ipcRenderer.invoke('settings:open-config-directory'),
   exportSettings: (options) => ipcRenderer.invoke('settings:export', options),

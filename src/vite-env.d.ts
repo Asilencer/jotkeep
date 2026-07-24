@@ -2,6 +2,21 @@
 
 type NoteDownCaptureRequest = { kind: 'url' | 'text' | 'file'; value: string }
 type NoteDownStorageRecovery = { filename: string; recoveryPath: string }
+type NoteDownUpdateState = {
+  status:
+    | 'idle'
+    | 'checking'
+    | 'up-to-date'
+    | 'available'
+    | 'downloading'
+    | 'ready'
+    | 'error'
+    | 'unsupported'
+  currentVersion: string
+  latestVersion?: string
+  progress?: number
+  message?: string
+}
 type NoteDownBackupSummary = {
   id: string
   createdAt: string
@@ -21,6 +36,9 @@ interface Window {
     onBeforeClose: (callback: () => void) => () => void
     completeClose: (success: boolean) => void
     onStorageRecovery: (callback: (recovery: NoteDownStorageRecovery) => void) => () => void
+    checkForUpdates: () => Promise<NoteDownUpdateState>
+    downloadUpdate: () => Promise<NoteDownUpdateState>
+    onUpdateState: (callback: (state: NoteDownUpdateState) => void) => () => void
     chooseDirectory: () => Promise<string | null>
     openConfigDirectory: () => Promise<void>
     exportSettings: (options: { settings: object }) => Promise<string | null>
@@ -117,10 +135,13 @@ interface Window {
       | Array<{
         id: string
         title: string
+        description?: string
         projectId?: string
         date: string
         status: 'Todo' | 'Doing' | 'Done' | 'Cancelled'
         source?: string
+        sourceDocumentId?: string
+        sourceBlockId?: string
         }>
       | null
     >
@@ -129,10 +150,13 @@ interface Window {
       tasks: Array<{
         id: string
         title: string
+        description?: string
         projectId?: string
         date: string
         status: 'Todo' | 'Doing' | 'Done' | 'Cancelled'
         source?: string
+        sourceDocumentId?: string
+        sourceBlockId?: string
       }>
     }) => Promise<void>
     listProjects: (options: { libraryPath: string }) => Promise<

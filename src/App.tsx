@@ -29,6 +29,7 @@ import {
   CloudRemove,
   Copy,
   DocumentText,
+  Download,
   Edit,
   Folder,
   FolderOpen,
@@ -51,9 +52,13 @@ import {
   type IconComponent,
 } from 'reicon-react'
 import { BrandMark, type BrandName } from './BrandMark'
+import { updateDocumentTaskBlock } from './documentTasks'
 import FloatingSelect from './FloatingSelect'
 import { getCurrentLocale, translate as t, useI18n } from './i18n'
-import type { PublishParagraphPayload } from './MarkdownDocumentEditor'
+import type {
+  DocumentTaskSnapshot,
+  PublishParagraphPayload,
+} from './MarkdownDocumentEditor'
 import ScrollPage from './ScrollPage'
 import WeatherAtmosphere, { type WeatherSceneKind } from './WeatherAtmosphere'
 import jotkeepMark from '../assets/brand/jotkeep-mark.svg'
@@ -332,6 +337,7 @@ const routeKey = (route: Route) => {
 type IconButtonProps = {
   label: string
   children: ReactNode
+  className?: string
   active?: boolean
   expanded?: boolean
   disabled?: boolean
@@ -341,6 +347,7 @@ type IconButtonProps = {
 function IconButton({
   label,
   children,
+  className,
   active,
   expanded,
   disabled,
@@ -348,7 +355,7 @@ function IconButton({
 }: IconButtonProps) {
   return (
     <button
-      className={`icon-button${active ? ' is-active' : ''}`}
+      className={`icon-button${className ? ` ${className}` : ''}${active ? ' is-active' : ''}`}
       type="button"
       aria-label={t(label)}
       aria-pressed={active}
@@ -372,6 +379,8 @@ type SidebarProps = {
   onToggle: () => void
   onOpenCommand: () => void
   commandDisabled?: boolean
+  updateState: NoteDownUpdateState | null
+  onDownloadUpdate: () => void
   onOpenSettings: () => void
   onCreateDocument: (kind: CreatableDocumentKind) => void
   onCreateTask: () => void
@@ -388,6 +397,8 @@ function Sidebar({
   onToggle,
   onOpenCommand,
   commandDisabled,
+  updateState,
+  onDownloadUpdate,
   onOpenSettings,
   onCreateDocument,
   onCreateTask,
@@ -395,6 +406,18 @@ function Sidebar({
 }: SidebarProps) {
   const libraryActive = route.page === 'library' ? route.kind : undefined
   const projectActive = route.page === 'project' ? route.projectId : undefined
+  const updateVisible = Boolean(
+    updateState?.latestVersion
+    && ['available', 'downloading', 'ready', 'error'].includes(updateState.status),
+  )
+  const updateLabel = updateState?.status === 'downloading'
+    ? t('正在下载 Jotkeep {version}（{progress}%）', {
+        version: updateState.latestVersion ?? '',
+        progress: updateState.progress ?? 0,
+      })
+    : updateState?.status === 'ready'
+      ? t('打开 Jotkeep {version} 安装包', { version: updateState.latestVersion ?? '' })
+      : t('更新到 Jotkeep {version}', { version: updateState?.latestVersion ?? '' })
 
   return (
     <aside className="sidebar" aria-label={t('主导航')}>
@@ -485,7 +508,7 @@ function Sidebar({
         />
       </nav>
 
-      <div className="profile-footer">
+      <div className={`profile-footer${updateVisible ? ' has-update' : ''}`}>
         <button
           className={`profile-identity${route.page === 'profile' ? ' is-active' : ''}`}
           type="button"
@@ -501,6 +524,15 @@ function Sidebar({
           </span>
           <strong>{userProfile.username}</strong>
         </button>
+        {updateVisible && (
+          <IconButton
+            className={`update-button is-${updateState?.status}`}
+            label={updateLabel}
+            onClick={onDownloadUpdate}
+          >
+            <Download size={16} />
+          </IconButton>
+        )}
         <IconButton label="设置" onClick={onOpenSettings}>
           <Setting2 size={16} />
         </IconButton>
@@ -837,8 +869,15 @@ type PageProps = {
     paragraph: PublishParagraphPayload,
   ) => void
   onDocumentProjectChange: (document: DocumentSummary, projectId?: string) => void
+  onDocumentTasksChange: (
+    documentId: string,
+    projectId: string | undefined,
+    source: string,
+    tasks: DocumentTaskSnapshot[],
+  ) => void
   onToggleTask: (task: TaskItem) => void
   onEditTask: (task: TaskItem) => void
+  onDeleteTask: (task: TaskItem, anchor: HTMLElement) => void
 }
 
 function Page({
@@ -862,11 +901,18 @@ function Page({
   onDeletePublishDraft,
   onPublishParagraph,
   onDocumentProjectChange,
+  onDocumentTasksChange,
   onToggleTask,
   onEditTask,
+  onDeleteTask,
 }: PageProps) {
   if (route.page === 'today') {
-    return <TodayPage onPublishParagraph={onPublishParagraph} />
+    return (
+      <TodayPage
+        onPublishParagraph={onPublishParagraph}
+        onDocumentTasksChange={onDocumentTasksChange}
+      />
+    )
   }
   if (route.page === 'archive') {
     return (
@@ -890,6 +936,7 @@ function Page({
           documentItems={documentItems}
           onProjectChange={onDocumentProjectChange}
           onPublishParagraph={onPublishParagraph}
+          onDocumentTasksChange={onDocumentTasksChange}
         />
       )
     }
@@ -944,6 +991,7 @@ function Page({
         documentItems={documentItems}
         onProjectChange={onDocumentProjectChange}
         onPublishParagraph={onPublishParagraph}
+        onDocumentTasksChange={onDocumentTasksChange}
       />
     )
   }
@@ -954,6 +1002,7 @@ function Page({
         taskItems={taskItems}
         onToggleTask={onToggleTask}
         onEditTask={onEditTask}
+        onDeleteTask={onDeleteTask}
       />
     )
   }
@@ -1464,8 +1513,10 @@ function TodayContextCard({
 
 function TodayPage({
   onPublishParagraph,
+  onDocumentTasksChange,
 }: {
   onPublishParagraph: PageProps['onPublishParagraph']
+  onDocumentTasksChange: PageProps['onDocumentTasksChange']
 }) {
   const libraryPath = loadSettings().libraryPath
   const [today] = useState(() => {
@@ -1511,6 +1562,13 @@ function TodayPage({
             ariaLabel={t('Daily Markdown 编辑器')}
             onPublishParagraph={(paragraph) =>
               onPublishParagraph('daily', formatDateKey(selectedDate), paragraph)}
+            onTasksChange={(documentTasks) =>
+              onDocumentTasksChange(
+                documentId,
+                undefined,
+                formatDateKey(selectedDate),
+                documentTasks,
+              )}
           />
         </Suspense>
       </article>
@@ -1964,12 +2022,14 @@ function TaskCard({
   projectItems,
   onToggle,
   onEdit,
+  onDelete,
 }: {
   task: TaskItem
   groupMode: TaskGroupMode
   projectItems: Project[]
   onToggle: (task: TaskItem) => void
   onEdit: (task: TaskItem) => void
+  onDelete: (task: TaskItem, anchor: HTMLElement) => void
 }) {
   const complete = task.status === 'Done'
 
@@ -1985,7 +2045,10 @@ function TaskCard({
         {complete && <Check size={13} />}
       </button>
       <button className="task-card-main task-card-edit" type="button" onClick={() => onEdit(task)}>
-        <strong>{task.title}</strong>
+        <span className="task-card-copy">
+          <strong>{task.title}</strong>
+          {task.description && <span>{task.description}</span>}
+        </span>
         <span className="task-card-metadata">
           {groupMode !== 'project' && (
             <ProjectLabel projectItems={projectItems} projectId={task.projectId} />
@@ -1993,6 +2056,15 @@ function TaskCard({
           {groupMode !== 'status' && <TaskStatusIcon status={task.status} />}
           {groupMode !== 'date' && <time>{task.date}</time>}
         </span>
+      </button>
+      <button
+        className="task-card-delete"
+        type="button"
+        aria-label={t('移除任务：{title}', { title: task.title })}
+        title={t('移除')}
+        onClick={(event) => onDelete(task, event.currentTarget)}
+      >
+        <Trash size={14} strokeWidth={1.8} />
       </button>
     </div>
   )
@@ -2003,11 +2075,13 @@ function TasksPage({
   taskItems,
   onToggleTask,
   onEditTask,
+  onDeleteTask,
 }: {
   projectItems: Project[]
   taskItems: TaskItem[]
   onToggleTask: (task: TaskItem) => void
   onEditTask: (task: TaskItem) => void
+  onDeleteTask: (task: TaskItem, anchor: HTMLElement) => void
 }) {
   const [groupMode, setGroupMode] = useState<TaskGroupMode>('date')
   const groups =
@@ -2091,6 +2165,7 @@ function TasksPage({
                     projectItems={projectItems}
                     onToggle={onToggleTask}
                     onEdit={onEditTask}
+                    onDelete={onDeleteTask}
                   />
                 ))}
               </div>
@@ -2107,14 +2182,12 @@ function TaskEditorDialog({
   isNew,
   projectItems,
   onSave,
-  onDelete,
   onClose,
 }: {
   task: TaskItem
   isNew: boolean
   projectItems: Project[]
   onSave: (task: TaskItem) => void
-  onDelete: (task: TaskItem) => void
   onClose: () => void
 }) {
   const [draft, setDraft] = useState(task)
@@ -2123,27 +2196,29 @@ function TaskEditorDialog({
 
   return (
     <div
-      className="palette-backdrop"
+      className="palette-backdrop task-editor-backdrop"
       role="presentation"
       onMouseDown={onClose}
     >
       <form
-        className="task-editor-dialog"
+        className="task-editor-dialog task-form-dialog"
         aria-label={t(isNew ? '新建任务' : '编辑任务')}
         onMouseDown={(event) => event.stopPropagation()}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') onClose()
+        }}
         onSubmit={(event) => {
           event.preventDefault()
           const title = draft.title.trim()
           if (!title) return
-          onSave({ ...draft, title, date: draft.date.trim() || '无日期' })
+          onSave({
+            ...draft,
+            title,
+            description: draft.description?.trim() ?? '',
+            date: draft.date.trim() || '无日期',
+          })
         }}
       >
-        <header>
-          <Task size={17} strokeWidth={1.8} />
-          <IconButton label="关闭弹窗" onClick={onClose}>
-            <CloseCircle size={16} />
-          </IconButton>
-        </header>
         <label className="task-editor-title">
           <span>{t('任务')}</span>
           <input
@@ -2153,7 +2228,16 @@ function TaskEditorDialog({
             onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))}
           />
         </label>
-        <div className="task-editor-fields">
+        <div className="task-editor-fields task-form-fields">
+          <label className="task-editor-description">
+            <span>{t('描述')}</span>
+            <textarea
+              value={draft.description ?? ''}
+              placeholder={t('补充任务描述')}
+              onChange={(event) =>
+                setDraft((current) => ({ ...current, description: event.target.value }))}
+            />
+          </label>
           <label>
             <span>{t('日期')}</span>
             <input
@@ -2185,33 +2269,12 @@ function TaskEditorDialog({
               }
             />
           </label>
-          <label>
-            <span>{t('状态')}</span>
-            <FloatingSelect
-              label={t('任务状态')}
-              value={draft.status}
-              options={(Object.keys(taskStatusLabels) as TaskItem['status'][]).map((status) => ({
-                value: status,
-                label: t(taskStatusLabels[status]),
-              }))}
-              onChange={(value) =>
-                setDraft((current) => ({
-                  ...current,
-                  status: value as TaskItem['status'],
-                }))
-              }
-            />
-          </label>
         </div>
-        <footer>
-          {!isNew && (
-            <button className="task-delete-button" type="button" onClick={() => onDelete(task)}>
-              <Trash size={15} strokeWidth={1.8} />
-              {t('移除')}
-            </button>
-          )}
-          <button className="task-save-button" type="submit" disabled={!draft.title.trim()}>
-            <Check size={15} strokeWidth={1.8} />
+        <footer className="dialog-actions task-editor-actions">
+          <button className="dialog-secondary-button" type="button" onClick={onClose}>
+            {t('取消')}
+          </button>
+          <button className="dialog-primary-button" type="submit" disabled={!draft.title.trim()}>
             {t('保存')}
           </button>
         </footer>
@@ -2280,22 +2343,25 @@ function ProjectEditorDialog({
 
 type ProjectDangerAction = 'archive' | 'delete'
 
-function ProjectDangerPopover({
-  action,
+function AnchoredActionPopover({
   anchor,
-  documentCount,
+  title,
+  detail,
+  confirmLabel,
+  danger,
   onConfirm,
   onClose,
 }: {
-  action: ProjectDangerAction
   anchor: HTMLElement
-  documentCount: number
+  title: string
+  detail?: string
+  confirmLabel: string
+  danger: boolean
   onConfirm: () => void
   onClose: () => void
 }) {
   const [position, setPosition] = useState({ left: 0, top: 0, above: false, arrowX: 0 })
   const panelRef = useRef<HTMLElement>(null)
-  const archive = action === 'archive'
 
   const updatePosition = useCallback(() => {
     const rect = anchor.getBoundingClientRect()
@@ -2313,7 +2379,7 @@ function ProjectDangerPopover({
 
   useLayoutEffect(() => {
     updatePosition()
-  }, [documentCount, updatePosition])
+  }, [detail, title, updatePosition])
 
   useEffect(() => {
     const closeOutside = (event: PointerEvent) => {
@@ -2339,9 +2405,9 @@ function ProjectDangerPopover({
   return createPortal(
     <section
       ref={panelRef}
-      className={`project-danger-popover${archive ? '' : ' is-delete'}${position.above ? ' is-above' : ''}`}
+      className={`project-danger-popover${danger ? ' is-delete' : ''}${position.above ? ' is-above' : ''}`}
       role="alertdialog"
-      aria-labelledby="project-danger-title"
+      aria-label={title}
       style={{
         left: position.left,
         top: position.top,
@@ -2350,14 +2416,8 @@ function ProjectDangerPopover({
     >
       <div className="project-danger-copy">
         <div className="project-danger-message">
-          <strong id="project-danger-title">
-            {documentCount > 0
-              ? t('{action}项目以及项目下的文档', {
-                  action: t(archive ? '归档' : '删除'),
-                })
-              : t('{action}项目', { action: t(archive ? '归档' : '删除') })}
-          </strong>
-          {documentCount > 0 && <small>{t('{count} 篇', { count: documentCount })}</small>}
+          <strong>{title}</strong>
+          {detail && <small title={detail}>{detail}</small>}
         </div>
       </div>
       <footer className="dialog-actions">
@@ -2365,15 +2425,47 @@ function ProjectDangerPopover({
           {t('取消')}
         </button>
         <button
-          className={archive ? 'dialog-primary-button' : 'dialog-danger-button'}
+          className={danger ? 'dialog-danger-button' : 'dialog-primary-button'}
           type="button"
           onClick={onConfirm}
         >
-          {t(archive ? '归档' : '删除')}
+          {confirmLabel}
         </button>
       </footer>
     </section>,
     document.body,
+  )
+}
+
+function ProjectDangerPopover({
+  action,
+  anchor,
+  documentCount,
+  onConfirm,
+  onClose,
+}: {
+  action: ProjectDangerAction
+  anchor: HTMLElement
+  documentCount: number
+  onConfirm: () => void
+  onClose: () => void
+}) {
+  const archive = action === 'archive'
+  const actionLabel = t(archive ? '归档' : '删除')
+  const title = documentCount > 0
+    ? t('{action}项目以及项目下的文档', { action: actionLabel })
+    : t('{action}项目', { action: actionLabel })
+
+  return (
+    <AnchoredActionPopover
+      anchor={anchor}
+      title={title}
+      detail={documentCount > 0 ? t('{count} 篇', { count: documentCount }) : undefined}
+      confirmLabel={actionLabel}
+      danger={!archive}
+      onConfirm={onConfirm}
+      onClose={onClose}
+    />
   )
 }
 
@@ -2675,6 +2767,7 @@ function DocumentPage({
   documentItems,
   onProjectChange,
   onPublishParagraph,
+  onDocumentTasksChange,
 }: {
   kind: DocumentKind
   itemId: string
@@ -2682,6 +2775,7 @@ function DocumentPage({
   documentItems: DocumentSummary[]
   onProjectChange: (document: DocumentSummary, projectId?: string) => void
   onPublishParagraph: PageProps['onPublishParagraph']
+  onDocumentTasksChange: PageProps['onDocumentTasksChange']
 }) {
   const summary = documentItems.find((item) => item.kind === kind && item.id === itemId)
   const article = !window.noteDown && kind === 'articles'
@@ -2721,6 +2815,13 @@ function DocumentPage({
                 ? (paragraph) => onPublishParagraph(kind, itemId, paragraph)
                 : undefined
             }
+            onTasksChange={(documentTasks) =>
+              onDocumentTasksChange(
+                `${kind}/${itemId}`,
+                projectId,
+                summary?.title ?? item?.title ?? '未命名文档',
+                documentTasks,
+              )}
             metadata={({ tags: editorTags, setTags }) => (
               <DocumentInfoPopover
                 summary={summary}
@@ -4173,6 +4274,65 @@ const projectNamesStorageKey = 'note-down.project-names'
 const projectItemsStorageKey = 'note-down.projects.v1'
 const taskItemsStorageKey = 'note-down.tasks.v1'
 
+type DocumentTasksUpdate = {
+  documentId: string
+  projectId?: string
+  source: string
+  tasks: DocumentTaskSnapshot[]
+}
+
+const reconcileDocumentTasks = (
+  current: TaskItem[],
+  update: DocumentTasksUpdate,
+) => {
+  const incoming = new Map(update.tasks.map((task) => [task.id, task]))
+  const retainedBlockIds = new Set<string>()
+  let changed = false
+  const next = current.flatMap((task) => {
+    if (task.sourceDocumentId !== update.documentId) return [task]
+    const documentTask = task.sourceBlockId
+      ? incoming.get(task.sourceBlockId)
+      : undefined
+    if (!documentTask) {
+      changed = true
+      return []
+    }
+    retainedBlockIds.add(documentTask.id)
+    const merged: TaskItem = {
+      ...task,
+      title: documentTask.title || '未命名任务',
+      date: documentTask.due && documentTask.due !== '-' ? documentTask.due : '无日期',
+      status: documentTask.checked ? 'Done' : 'Todo',
+      source: update.source,
+    }
+    if (
+      merged.title !== task.title
+      || merged.date !== task.date
+      || merged.status !== task.status
+      || merged.source !== task.source
+    ) {
+      changed = true
+      return [merged]
+    }
+    return [task]
+  })
+
+  const additions = update.tasks
+    .filter((task) => !retainedBlockIds.has(task.id))
+    .map<TaskItem>((task) => ({
+      id: `document-task:${update.documentId}:${task.id}`,
+      title: task.title || '未命名任务',
+      projectId: update.projectId,
+      date: task.due && task.due !== '-' ? task.due : '无日期',
+      status: task.checked ? 'Done' : 'Todo',
+      source: update.source,
+      sourceDocumentId: update.documentId,
+      sourceBlockId: task.id,
+    }))
+  if (additions.length > 0) changed = true
+  return changed ? [...additions, ...next] : current
+}
+
 const trackPendingStorageWrite = <Value,>(pending: Promise<Value>) => {
   window.dispatchEvent(
     new CustomEvent('note-down:save-pending', { detail: { pending } }),
@@ -4235,6 +4395,7 @@ export default function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [commandOpen, setCommandOpen] = useState(false)
   const [notice, setNotice] = useState('')
+  const [updateState, setUpdateState] = useState<NoteDownUpdateState | null>(null)
   const [saveState, setSaveState] = useState<DocumentSaveState>('saved')
   const [editingTask, setEditingTask] = useState<TaskItem | null>(null)
   const [editingTaskIsNew, setEditingTaskIsNew] = useState(false)
@@ -4243,6 +4404,10 @@ export default function App() {
   const [projectDanger, setProjectDanger] = useState<{
     project: Project
     action: ProjectDangerAction
+    anchor: HTMLElement
+  } | null>(null)
+  const [taskDanger, setTaskDanger] = useState<{
+    task: TaskItem
     anchor: HTMLElement
   } | null>(null)
   const [userProfile, setUserProfile] = useState(() =>
@@ -4263,10 +4428,33 @@ export default function App() {
     editingTask
       || editingProject
       || projectDanger
+      || taskDanger
       || profileEditorOpen
       || clipCaptureOpen
       || versionDocument,
   )
+  const documentTasksRef = useRef(new Map<string, DocumentTasksUpdate>())
+  const syncDocumentTasks = useCallback(
+    (
+      documentId: string,
+      projectId: string | undefined,
+      source: string,
+      documentTasks: DocumentTaskSnapshot[],
+    ) => {
+      const update = { documentId, projectId, source, tasks: documentTasks }
+      documentTasksRef.current.set(documentId, update)
+      if (!taskStoreReady) return
+      setTaskItems((current) => reconcileDocumentTasks(current, update))
+    },
+    [taskStoreReady],
+  )
+
+  useEffect(() => {
+    if (!taskStoreReady || documentTasksRef.current.size === 0) return
+    setTaskItems((current) =>
+      [...documentTasksRef.current.values()].reduce(reconcileDocumentTasks, current),
+    )
+  }, [taskStoreReady])
 
   const dismissProjectEditor = () => {
     if (editingProjectIsNew && editingProject) {
@@ -4309,6 +4497,14 @@ export default function App() {
       stopRecovery()
       window.removeEventListener('note-down:save-pending', trackSave)
     }
+  }, [])
+
+  useEffect(() => {
+    const bridge = window.noteDown
+    if (!bridge?.checkForUpdates) return
+    const stopListening = bridge.onUpdateState(setUpdateState)
+    void bridge.checkForUpdates().then(setUpdateState).catch(() => {})
+    return stopListening
   }, [])
 
   useEffect(() => {
@@ -4438,6 +4634,19 @@ export default function App() {
   const openSettings = () => {
     dismissProjectEditor()
     window.location.hash = 'settings'
+  }
+
+  const downloadUpdate = async () => {
+    if (!window.noteDown?.downloadUpdate) return
+    try {
+      const nextState = await window.noteDown.downloadUpdate()
+      setUpdateState(nextState)
+      if (nextState.status === 'ready') {
+        setNotice(`Jotkeep ${nextState.latestVersion} 安装包已打开。`)
+      }
+    } catch {
+      setNotice('新版下载或校验失败，请稍后重试。')
+    }
   }
 
   const createDocument = useCallback(
@@ -4752,6 +4961,7 @@ export default function App() {
   const navigate = (nextRoute: Route) => {
     dismissProjectEditor()
     setProjectDanger(null)
+    setTaskDanger(null)
     setRoute(nextRoute)
   }
   const setDocumentProject = async (document: DocumentSummary, projectId?: string) => {
@@ -5227,34 +5437,102 @@ export default function App() {
       projectId,
       date: new Date().toLocaleDateString('sv-SE'),
       status: 'Todo',
+      description: '',
     })
     setEditingTaskIsNew(true)
     setRoute({ page: 'library', kind: 'tasks' })
   }
-  const saveTask = (task: TaskItem) => {
-    setTaskItems((current) => [
-      task,
-      ...current.filter((item) => item.id !== task.id),
-    ])
-    setEditingTask(null)
-    setEditingTaskIsNew(false)
-    setNotice(editingTaskIsNew ? '任务已创建。' : '任务已更新。')
-  }
-  const deleteTask = (task: TaskItem) => {
-    if (loadSettings().confirmDelete && !window.confirm(`移除任务“${task.title}”？`)) return
-    setTaskItems((current) => current.filter((item) => item.id !== task.id))
-    setEditingTask(null)
-    setEditingTaskIsNew(false)
-    setNotice('任务已移除。')
-  }
-  const toggleTask = (task: TaskItem) => {
-    setTaskItems((current) =>
-      current.map((item) =>
-        item.id === task.id
-          ? { ...item, status: item.status === 'Done' ? 'Todo' : 'Done' }
-          : item,
-      ),
+  const persistDocumentTask = async (
+    task: TaskItem,
+    value: TaskItem | null,
+  ) => {
+    if (!task.sourceDocumentId || !task.sourceBlockId) return
+    const libraryPath = loadSettings().libraryPath
+    const previewStorageKey = `note-down.preview-document.${task.sourceDocumentId}`
+    const state = window.noteDown
+      ? await window.noteDown.loadDocumentState({
+          documentId: task.sourceDocumentId,
+          libraryPath,
+        })
+      : {
+          content: window.localStorage.getItem(previewStorageKey),
+          revision: null,
+        }
+    if (!state.content) throw new Error('Source document is missing')
+    const content = updateDocumentTaskBlock(
+      state.content,
+      task.sourceBlockId,
+      value
+        ? {
+            title: value.title,
+            checked: value.status === 'Done',
+            due: value.date === '无日期' ? '-' : value.date,
+          }
+        : null,
     )
+    if (content === state.content) throw new Error('Source task is missing')
+    if (window.noteDown) {
+      const result = await window.noteDown.saveDocument({
+        documentId: task.sourceDocumentId,
+        libraryPath,
+        content,
+        baseRevision: state.revision,
+      })
+      if (result.status === 'conflict') throw new Error('Source document changed')
+    } else {
+      window.localStorage.setItem(previewStorageKey, content)
+    }
+  }
+  const saveTask = async (task: TaskItem) => {
+    const created = editingTaskIsNew
+    try {
+      await persistDocumentTask(task, task)
+      setTaskItems((current) => [
+        task,
+        ...current.filter((item) => item.id !== task.id),
+      ])
+      setEditingTask(null)
+      setEditingTaskIsNew(false)
+      setNotice(created ? '任务已创建。' : '任务已更新。')
+    } catch {
+      setNotice('任务来源文档更新失败。')
+    }
+  }
+  const deleteTask = async (task: TaskItem) => {
+    try {
+      await persistDocumentTask(task, null)
+      setTaskItems((current) => current.filter((item) => item.id !== task.id))
+      setEditingTask(null)
+      setEditingTaskIsNew(false)
+      setTaskDanger(null)
+      setNotice('任务已移除。')
+    } catch {
+      setTaskDanger(null)
+      setNotice('任务来源文档更新失败。')
+    }
+  }
+  const requestTaskDelete = (task: TaskItem, anchor: HTMLElement) => {
+    if (!loadSettings().confirmDelete) {
+      void deleteTask(task)
+      return
+    }
+    setTaskDanger((current) =>
+      current?.task.id === task.id ? null : { task, anchor },
+    )
+  }
+  const toggleTask = async (task: TaskItem) => {
+    const nextTask: TaskItem = {
+      ...task,
+      status: task.status === 'Done' ? 'Todo' : 'Done',
+    }
+    try {
+      await persistDocumentTask(task, nextTask)
+      setTaskItems((current) =>
+        current.map((item) => item.id === task.id ? nextTask : item),
+      )
+    } catch {
+      setNotice('任务来源文档更新失败。')
+    }
   }
   const goBack = () => {
     if (route.page === 'library') setRoute({ page: 'library', kind: route.kind })
@@ -5276,6 +5554,8 @@ export default function App() {
         }}
         onToggle={() => setSidebarCollapsed((collapsed) => !collapsed)}
         commandDisabled={modalOpen}
+        updateState={updateState}
+        onDownloadUpdate={() => void downloadUpdate()}
         onOpenCommand={() => {
           if (!modalOpen) setCommandOpen(true)
         }}
@@ -5330,7 +5610,9 @@ export default function App() {
             void initiateParagraphPublish(sourceKind, sourceId, paragraph)}
           onDocumentProjectChange={(document, projectId) =>
             void setDocumentProject(document, projectId)}
+          onDocumentTasksChange={syncDocumentTasks}
           onToggleTask={toggleTask}
+          onDeleteTask={requestTaskDelete}
           onEditTask={(task) => {
             setEditingTask(task)
             setEditingTaskIsNew(false)
@@ -5363,7 +5645,6 @@ export default function App() {
           isNew={editingTaskIsNew}
           projectItems={projectItems}
           onSave={saveTask}
-          onDelete={deleteTask}
           onClose={() => {
             setEditingTask(null)
             setEditingTaskIsNew(false)
@@ -5387,6 +5668,17 @@ export default function App() {
           ).length}
           onConfirm={() => void applyProjectAction()}
           onClose={() => setProjectDanger(null)}
+        />
+      )}
+      {taskDanger && (
+        <AnchoredActionPopover
+          anchor={taskDanger.anchor}
+          title={t('移除任务')}
+          detail={taskDanger.task.title || t('任务')}
+          confirmLabel={t('移除')}
+          danger
+          onConfirm={() => void deleteTask(taskDanger.task)}
+          onClose={() => setTaskDanger(null)}
         />
       )}
       {profileEditorOpen && (

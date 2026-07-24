@@ -54,10 +54,13 @@ export type Clip = {
 export type TaskItem = {
   id: string
   title: string
+  description?: string
   projectId?: string
   date: string
   status: 'Todo' | 'Doing' | 'Done' | 'Cancelled'
   source?: string
+  sourceDocumentId?: string
+  sourceBlockId?: string
 }
 
 export type PublishSourceKind = Extract<DocumentKind, 'notes' | 'articles'> | 'daily'

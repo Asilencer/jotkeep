@@ -2551,7 +2551,7 @@ kbd {
 
 .docx-block.type-task > .docx-block-gutter {
   align-self: start;
-  margin-top: calc(6px + (var(--task-line-box) - 26px) / 2);
+  margin-top: calc((var(--task-line-box) - 26px) / 2);
 }
 
 .docx-block.type-button > .docx-block-gutter,
@@ -3953,11 +3953,11 @@ kbd {
 
 .docx-task-card {
   display: grid;
-  min-height: 42px;
+  min-height: var(--task-line-box);
   grid-template-columns: 24px minmax(0, 1fr);
   align-items: start;
   column-gap: 4px;
-  padding: 6px 0;
+  padding: 0;
   background: transparent;
 }
 

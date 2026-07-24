@@ -3146,7 +3146,20 @@ const insertCommand = (editor: NoteEditor, menu: CommandMenuState, id: SlashComm
       id === 'paragraph' ||
       id.startsWith('heading') ||
       ['bullet', 'numbered', 'todo', 'quote', 'code', 'callout'].includes(id)
-    const replaceCurrent = Node.string(current).trim() === '' || (menu.mode === 'manual' && simpleTarget)
+    const slashTextTarget =
+      simpleTarget ||
+      [
+        'equation',
+        'image',
+        'media',
+        'bookmark',
+        'task',
+        'button',
+      ].includes(id)
+    const replaceCurrent =
+      Node.string(current).trim() === ''
+      || (menu.mode === 'manual' && simpleTarget)
+      || (menu.mode === 'slash' && slashTextTarget)
     const replacement = createBlockForCommand(id, replaceCurrent ? text : '')
     let targetPath = blockPath
 

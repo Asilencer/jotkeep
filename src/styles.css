@@ -2365,6 +2365,7 @@ kbd {
   caret-color: var(--text);
   font-family: var(--writing-font-family);
   font-size: var(--editor-font-size);
+  font-weight: 600;
   line-height: var(--editor-line-height);
   cursor: text;
 }

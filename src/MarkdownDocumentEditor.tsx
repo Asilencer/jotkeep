@@ -40,6 +40,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ClipboardEvent as ReactClipboardEvent,
   type CSSProperties,
   type KeyboardEvent,
   type MouseEvent as ReactMouseEvent,
@@ -388,6 +389,57 @@ const insertTableData = (editor: NoteEditor, text: string) => {
 }
 
 const composingEditors = new WeakSet<NoteEditor>()
+
+const replaceClipboardElement = (source: Element, tagName: string) => {
+  const replacement = document.createElement(tagName)
+  for (const attribute of source.attributes) {
+    replacement.setAttribute(attribute.name, attribute.value)
+  }
+  replacement.append(...source.childNodes)
+  source.replaceWith(replacement)
+  return replacement
+}
+
+const selectedHTML = () => {
+  const selection = window.getSelection()
+  if (!selection || selection.isCollapsed || selection.rangeCount === 0) return ''
+
+  const container = document.createElement('div')
+  container.append(selection.getRangeAt(0).cloneContents())
+  container.querySelectorAll(
+    '.docx-block-gutter, .docx-nested-block-gutter, '
+    + '.docx-inline-toolbar, .docx-command-menu, .docx-block-action-menu',
+  ).forEach((element) => element.remove())
+  container.querySelectorAll<HTMLElement>('.docx-inline-underline')
+    .forEach((element) => {
+      element.style.textDecoration = 'underline'
+    })
+  container.querySelectorAll<HTMLElement>('.docx-heading').forEach((element) => {
+    const level = Math.max(1, Math.min(6, Number(element.dataset.level) || 1))
+    replaceClipboardElement(element, `h${level}`)
+  })
+  container.querySelectorAll<HTMLElement>('.docx-text-line').forEach((element) => {
+    replaceClipboardElement(element, 'p')
+  })
+  container.querySelectorAll('*').forEach((element) => {
+    for (const attribute of [...element.attributes]) {
+      if (
+        attribute.name === 'class'
+        || attribute.name === 'contenteditable'
+        || attribute.name === 'spellcheck'
+        || attribute.name.startsWith('data-slate-')
+      ) {
+        element.removeAttribute(attribute.name)
+      }
+    }
+  })
+  return container.innerHTML
+}
+
+const copyRichText = (event: ReactClipboardEvent<HTMLDivElement>) => {
+  const html = selectedHTML()
+  if (html) event.clipboardData.setData('text/html', html)
+}
 
 const isStructuredClipboardText = (text: string) =>
   text.includes('\n') ||
@@ -4122,6 +4174,7 @@ function SlateDocumentEditor({
         }}
         onKeyDown={handleKeyDown}
         onDoubleClick={insertParagraphAtGap}
+        onCopy={copyRichText}
         onPaste={(event) => {
           const files = Array.from(event.clipboardData.files)
           if (files.length > 0) {

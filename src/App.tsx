@@ -84,6 +84,7 @@ import {
   type DocumentKind,
   type LibraryKind,
   type Project,
+  type PublishDeliveryMode,
   type PublishDraft,
   type PublishDraftStatus,
   type PublishSourceKind,
@@ -92,6 +93,15 @@ import {
   type TaskItem,
 } from './model'
 import { loadSettings } from './settings'
+import {
+  X_LONG_POST_CHARACTER_LIMIT,
+  X_STANDARD_WEIGHTED_LIMIT,
+  analyzeXPublishText,
+  recommendedXDeliveryMode,
+  splitXThread,
+  xComposerUrl,
+  xPublishText,
+} from './xPublish'
 
 const MarkdownDocumentEditor = lazy(() => import('./MarkdownDocumentEditor'))
 
@@ -148,7 +158,7 @@ const publishSourceRoute = (sourceKind: PublishSourceKind, sourceId: string): Ro
 
 const publishStatusLabels: Record<PublishDraftStatus, string> = {
   Preparing: '待处理',
-  Queued: '队列',
+  Queued: '待确认',
   Published: '已发布',
   Failed: '失败',
 }
@@ -160,39 +170,10 @@ const publishStatusIcons: Record<PublishDraftStatus, IconComponent> = {
   Failed: CloseCircle,
 }
 
-const publishTargetLabels: Record<PublishTarget, string> = {
-  x: 'X',
-}
-
 const publishStatusOrder: PublishDraftStatus[] = ['Preparing', 'Queued', 'Published', 'Failed']
 
-const publishBody = (markdown: string) =>
-  markdown.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '').trim()
-
-const xPublishText = (markdown: string) => publishBody(markdown)
-  .replace(/```[^\n]*\n([\s\S]*?)```/g, '$1')
-  .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
-  .replace(/\[(?:bookmark|button):([^\]]*)\]\(([^)]+)\)/gi, '$1 $2')
-  .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1 $2')
-  .replace(/^\s*:::[^\n]*$/gm, '')
-  .replace(/<[^>]+>/g, ' ')
-  .replace(/^\s*(?:#{1,9}|>|[-+*]\s+\[[ xX]\]|[-+*]|\d+\.)\s*/gm, '')
-  .replace(/^\s*\|?(?:\s*:?-+:?\s*\|)+\s*$/gm, '')
-  .replace(/\s*\|\s*/g, ' · ')
-  .replace(/[*_~`$]/g, '')
-  .replace(/[ \t]+\n/g, '\n')
-  .replace(/\n[ \t]+/g, '\n')
-  .replace(/\n{3,}/g, '\n\n')
-  .trim()
-
-const publishOutput = (draft: PublishDraft, target: PublishTarget) => {
-  const content = target === 'x' ? xPublishText(draft.sourceSnapshot) : ''
-  return {
-    content,
-    count: Array.from(content).length,
-    format: '纯文本',
-  }
-}
+const publishOutput = (draft: PublishDraft, target: PublishTarget) =>
+  target === 'x' ? draft.targetText ?? xPublishText(draft.sourceSnapshot) : ''
 
 type DocumentSummary = {
   id: string
@@ -906,7 +887,13 @@ type PageProps = {
   onChooseProfileAvatar: () => void
   onUpdatePublishDraft: (
     draftId: string,
-    update: { status?: PublishDraftStatus; targets?: PublishTarget[]; refreshSource?: boolean },
+    update: {
+      status?: PublishDraftStatus
+      targets?: PublishTarget[]
+      targetText?: string
+      deliveryMode?: PublishDeliveryMode
+      refreshSource?: boolean
+    },
   ) => Promise<PublishDraft | null>
   onDeletePublishDraft: (draft: PublishDraft) => Promise<boolean>
   onPublishParagraph: (
@@ -3098,6 +3085,357 @@ function DocumentInfoMark() {
   )
 }
 
+function PublishWorkspace({
+  draft,
+  onNavigate,
+  onNotice,
+  onUpdate,
+  onDelete,
+}: {
+  draft: PublishDraft
+  onNavigate: PageProps['onNavigate']
+  onNotice: PageProps['onNotice']
+  onUpdate: PageProps['onUpdatePublishDraft']
+  onDelete: PageProps['onDeletePublishDraft']
+}) {
+  const sourceText = publishOutput(draft, 'x')
+  const sourceAnalysis = analyzeXPublishText(sourceText)
+  const [text, setText] = useState(sourceText)
+  const [mode, setMode] = useState<PublishDeliveryMode>(
+    draft.deliveryMode ?? recommendedXDeliveryMode(sourceAnalysis),
+  )
+  const [threadIndex, setThreadIndex] = useState(0)
+  const analysis = useMemo(() => analyzeXPublishText(text), [text])
+  const threadSegments = useMemo(() => splitXThread(text), [text])
+  const SourceIcon = publishSourceIcons[draft.sourceKind]
+
+  useEffect(() => {
+    const nextText = publishOutput(draft, 'x')
+    setText(nextText)
+    setMode(
+      draft.deliveryMode ?? recommendedXDeliveryMode(analyzeXPublishText(nextText)),
+    )
+    setThreadIndex(0)
+  }, [draft.id, draft.sourceRevision])
+
+  const writeClipboard = async (value: string) => {
+    try {
+      if (window.noteDown?.copyText) await window.noteDown.copyText(value)
+      else await navigator.clipboard.writeText(value)
+      return true
+    } catch {
+      onNotice('复制失败，请检查剪贴板权限。')
+      return false
+    }
+  }
+
+  const openExternalUrl = async (url: string) => {
+    try {
+      if (window.noteDown?.openExternal) {
+        await window.noteDown.openExternal(url)
+      } else if (!window.open(url, '_blank', 'noopener,noreferrer')) {
+        throw new Error('Browser blocked the X composer')
+      }
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  const updateAwaitingConfirmation = async (message: string) => {
+    const saved = await onUpdate(draft.id, {
+      status: 'Queued',
+      targetText: text,
+      deliveryMode: mode,
+    })
+    onNotice(saved ? message : 'X 已打开，但本地草稿状态保存失败。')
+  }
+
+  const commitDraft = () => {
+    const storedMode = draft.deliveryMode ?? recommendedXDeliveryMode(sourceAnalysis)
+    if (text === sourceText && mode === storedMode) return
+    void onUpdate(draft.id, { targetText: text, deliveryMode: mode })
+  }
+
+  const selectMode = (nextMode: PublishDeliveryMode) => {
+    setMode(nextMode)
+    setThreadIndex(0)
+    void onUpdate(draft.id, { targetText: text, deliveryMode: nextMode })
+  }
+
+  const openStandardPost = async () => {
+    if (!analysis.standardPostValid) {
+      onNotice(`普通帖子超出 ${X_STANDARD_WEIGHTED_LIMIT} 加权字符，请先删减。`)
+      return
+    }
+    if (!analysis.intentSafe && !await writeClipboard(text)) return
+    const opened = await openExternalUrl(xComposerUrl(text, 'standard'))
+    if (!opened) {
+      onNotice(
+        analysis.intentSafe
+          ? '无法打开 X，请检查系统浏览器设置。'
+          : '发布稿已复制，但无法打开 X；可以手动打开后粘贴。',
+      )
+      return
+    }
+    await updateAwaitingConfirmation(
+      analysis.intentSafe
+        ? '已打开 X，请确认内容后发布。'
+        : '发布稿已复制并打开 X，请粘贴后发布。',
+    )
+  }
+
+  const openLongPost = async () => {
+    if (!analysis.longPostValid) {
+      onNotice(`长帖超过 ${X_LONG_POST_CHARACTER_LIMIT.toLocaleString()} 字符，请改用帖子串。`)
+      return
+    }
+    if (!await writeClipboard(text)) return
+    const opened = await openExternalUrl(xComposerUrl(text, 'long'))
+    if (!opened) {
+      onNotice('全文已复制，但无法打开 X；可以手动打开后粘贴。')
+      return
+    }
+    await updateAwaitingConfirmation('全文已复制并打开 X，请粘贴后发布。')
+  }
+
+  const copyThreadSegment = async () => {
+    if (threadSegments.length === 0) {
+      onNotice('发布稿为空，请先输入内容。')
+      return
+    }
+    const currentIndex = threadIndex >= threadSegments.length ? 0 : threadIndex
+    if (!await writeClipboard(threadSegments[currentIndex])) return
+    if (currentIndex === 0) {
+      const opened = await openExternalUrl(xComposerUrl('', 'thread'))
+      if (!opened) {
+        onNotice('第 1 条已复制，但无法打开 X；可以手动打开后粘贴。')
+        return
+      }
+      await updateAwaitingConfirmation('第 1 条已复制并打开 X，请粘贴后发布。')
+    } else {
+      onNotice(`第 ${currentIndex + 1} 条已复制，请在上一条下点击回复后粘贴。`)
+    }
+    setThreadIndex(currentIndex + 1)
+  }
+
+  const copyCurrentOutput = async () => {
+    const value = mode === 'thread' ? threadSegments.join('\n\n——\n\n') : text
+    if (await writeClipboard(value)) {
+      onNotice(mode === 'thread' ? '全部帖子已复制。' : 'X 发布稿已复制。')
+    }
+  }
+
+  const modeHelp = mode === 'standard'
+    ? analysis.standardPostValid
+      ? analysis.intentSafe
+        ? '内容将在 X 编辑器中预填，最终发布仍由你确认。'
+        : '内容编码后较长，将先复制再打开 X，避免 Web Intent 连接错误。'
+      : `超出普通帖子限制 ${Math.max(
+        0,
+        analysis.weightedLength - X_STANDARD_WEIGHTED_LIMIT,
+      )} 个加权字符。`
+    : mode === 'long'
+      ? analysis.longPostValid
+        ? '长帖需要 X Premium；应用会复制全文并打开空白编辑器。'
+        : `超过长帖上限 ${(
+          analysis.characterCount - X_LONG_POST_CHARACTER_LIMIT
+        ).toLocaleString()} 字符。`
+      : `已按段落和句子拆成 ${threadSegments.length} 条，需要你在 X 中逐条回复。`
+
+  const countLabel = mode === 'standard'
+    ? `${analysis.weightedLength} / ${X_STANDARD_WEIGHTED_LIMIT} 加权字符`
+    : mode === 'long'
+      ? `${analysis.characterCount.toLocaleString()} / ${X_LONG_POST_CHARACTER_LIMIT.toLocaleString()} 字符`
+      : `${threadSegments.length} 条帖子`
+
+  const primaryLabel = mode === 'standard'
+    ? analysis.standardPostValid
+      ? analysis.intentSafe ? '前往 X 发布' : '复制并打开 X'
+      : '请先删减发布稿'
+    : mode === 'long'
+      ? analysis.longPostValid ? '复制全文并打开 X' : '请改用帖子串'
+      : threadIndex >= threadSegments.length && threadSegments.length > 0
+        ? '重新开始帖子串'
+        : threadIndex === 0
+          ? '复制第 1 条并打开 X'
+          : `复制第 ${threadIndex + 1} 条`
+
+  const primaryDisabled = !text.trim()
+    || (mode === 'standard' && !analysis.standardPostValid)
+    || (mode === 'long' && !analysis.longPostValid)
+
+  const runPrimaryAction = () => {
+    if (mode === 'standard') return void openStandardPost()
+    if (mode === 'long') return void openLongPost()
+    void copyThreadSegment()
+  }
+
+  return (
+    <ScrollPage className="publish-workspace-page">
+      <article className="publish-workspace">
+        <header className="publish-workspace-header">
+          <span className="publish-source-icon" aria-hidden>
+            <SourceIcon size={16} strokeWidth={1.8} />
+          </span>
+          <div>
+            <strong>{draft.sourceBlockPreview || draft.sourceTitle}</strong>
+            <span>
+              {draft.sourceBlockId
+                ? `段落 · ${publishStatusLabels[draft.status]}`
+                : publishStatusLabels[draft.status]}
+            </span>
+          </div>
+          {!draft.sourceMissing && (
+            <IconButton
+              label="打开来源文档"
+              onClick={() =>
+                onNavigate(publishSourceRoute(draft.sourceKind, draft.sourceId))}
+            >
+              <DocumentText size={16} strokeWidth={1.8} />
+            </IconButton>
+          )}
+          <IconButton label="移除发布草稿" onClick={() => void onDelete(draft)}>
+            <Trash size={16} strokeWidth={1.8} />
+          </IconButton>
+        </header>
+
+        {(draft.sourceChanged || draft.sourceMissing) && (
+          <div className="publish-source-notice" role="status">
+            <Refresh size={15} strokeWidth={1.8} />
+            <span>
+              {draft.sourceMissing
+                ? '来源文档已不存在，当前发布稿仍可使用。'
+                : draft.sourceBlockId
+                  ? '来源文档已有更新，当前固定内容保持不变。'
+                  : '来源文档已有更新，当前发布版本不会自动覆盖。'}
+            </span>
+            {!draft.sourceMissing && !draft.sourceBlockId && (
+              <button
+                type="button"
+                onClick={() => void onUpdate(draft.id, { refreshSource: true })}
+              >
+                更新版本
+              </button>
+            )}
+          </div>
+        )}
+
+        <section className="publish-mode-panel" aria-label="X 发布方式">
+          <header>
+            <strong>发布方式</strong>
+            <span>{countLabel}</span>
+          </header>
+          <div className="publish-mode-options">
+            <button
+              className={mode === 'standard' ? 'is-active' : ''}
+              type="button"
+              onClick={() => selectMode('standard')}
+            >
+              <strong>单条</strong>
+              <span>普通帖子</span>
+            </button>
+            <button
+              className={mode === 'long' ? 'is-active' : ''}
+              type="button"
+              onClick={() => selectMode('long')}
+            >
+              <strong>长帖</strong>
+              <span>需要 Premium</span>
+            </button>
+            <button
+              className={mode === 'thread' ? 'is-active' : ''}
+              type="button"
+              onClick={() => selectMode('thread')}
+            >
+              <strong>帖子串</strong>
+              <span>{threadSegments.length} 条</span>
+            </button>
+          </div>
+          <p
+            className={
+              (mode === 'standard' && !analysis.standardPostValid)
+              || (mode === 'long' && !analysis.longPostValid)
+                ? 'is-warning'
+                : ''
+            }
+          >
+            {modeHelp}
+          </p>
+        </section>
+
+        <section className="publish-composer" aria-label="X 发布稿">
+          <header>
+            <span className="publish-x-mark" role="img" aria-label="X">
+              <BrandMark name="x" size={14} />
+            </span>
+            <strong>X 发布稿</strong>
+            <span>{countLabel}</span>
+          </header>
+          <textarea
+            aria-label="编辑 X 发布稿"
+            value={text}
+            spellCheck
+            onBlur={commitDraft}
+            onChange={(event) => {
+              setText(event.target.value)
+              setThreadIndex(0)
+            }}
+          />
+        </section>
+
+        {mode === 'thread' && (
+          <section className="publish-thread-preview" aria-label="帖子串预览">
+            <header>
+              <strong>帖子串预览</strong>
+              <span>{threadSegments.length} 条</span>
+            </header>
+            <div>
+              {threadSegments.map((segment, index) => (
+                <article
+                  className={index === threadIndex ? 'is-next' : ''}
+                  key={`${index}-${segment.slice(0, 20)}`}
+                >
+                  <header>
+                    <strong>{index + 1} / {threadSegments.length}</strong>
+                    <span>{analyzeXPublishText(segment).weightedLength} / 280</span>
+                  </header>
+                  <pre>{segment}</pre>
+                </article>
+              ))}
+            </div>
+          </section>
+        )}
+
+        <footer className="publish-workspace-actions">
+          {draft.status === 'Queued' && (
+            <button
+              type="button"
+              onClick={() => void onUpdate(draft.id, { status: 'Published' })}
+            >
+              <Check size={15} strokeWidth={1.8} />
+              标记已发布
+            </button>
+          )}
+          <button type="button" onClick={() => void copyCurrentOutput()}>
+            <Copy size={15} strokeWidth={1.8} />
+            {mode === 'thread' ? '复制全部帖子' : '复制发布稿'}
+          </button>
+          <button
+            className="publish-primary-action"
+            type="button"
+            disabled={primaryDisabled}
+            onClick={runPrimaryAction}
+          >
+            <BrandMark name="x" size={13} />
+            {primaryLabel}
+          </button>
+        </footer>
+      </article>
+    </ScrollPage>
+  )
+}
+
 function PublishPage({
   draftId,
   publishItems,
@@ -3118,32 +3456,6 @@ function PublishPage({
   const visibleDrafts = publishItems.filter((draft) => draft.status === activeStatus)
   const selectedDraft = publishItems.find((draft) => draft.id === draftId)
 
-  const copyDraft = async (draft: PublishDraft, target: PublishTarget) => {
-    const output = publishOutput(draft, target)
-    try {
-      if (window.noteDown?.copyText) await window.noteDown.copyText(output.content)
-      else await navigator.clipboard.writeText(output.content)
-      onNotice(`${publishTargetLabels[target]}排版已复制。`)
-    } catch {
-      onNotice('复制失败，请检查剪贴板权限。')
-    }
-  }
-
-  const openXComposer = async (draft: PublishDraft) => {
-    const output = publishOutput(draft, 'x')
-    const url = `https://x.com/intent/tweet?text=${encodeURIComponent(output.content)}`
-    try {
-      if (window.noteDown?.openExternal) await window.noteDown.openExternal(url)
-      else window.open(url, '_blank', 'noopener,noreferrer')
-      if (draft.status === 'Preparing' || draft.status === 'Failed') {
-        await onUpdate(draft.id, { status: 'Queued' })
-      }
-      onNotice('已打开 X，请确认内容后发布。')
-    } catch {
-      onNotice('无法打开 X，请检查系统浏览器设置。')
-    }
-  }
-
   if (draftId) {
     if (!selectedDraft) {
       return (
@@ -3156,98 +3468,14 @@ function PublishPage({
         </ScrollPage>
       )
     }
-    const SourceIcon = publishSourceIcons[selectedDraft.sourceKind]
-    const preview = publishOutput(selectedDraft, 'x')
     return (
-      <ScrollPage className="publish-workspace-page">
-        <article className="publish-workspace">
-          <header className="publish-workspace-header">
-            <span className="publish-source-icon" aria-hidden>
-              <SourceIcon size={16} strokeWidth={1.8} />
-            </span>
-            <div>
-              <strong>{selectedDraft.sourceBlockPreview || selectedDraft.sourceTitle}</strong>
-              <span>
-                {selectedDraft.sourceBlockId
-                  ? `段落 · ${publishStatusLabels[selectedDraft.status]}`
-                  : publishStatusLabels[selectedDraft.status]}
-              </span>
-            </div>
-            {!selectedDraft.sourceMissing && (
-              <IconButton
-                label="打开来源文档"
-                onClick={() =>
-                  onNavigate(
-                    publishSourceRoute(selectedDraft.sourceKind, selectedDraft.sourceId),
-                  )}
-              >
-                <DocumentText size={16} strokeWidth={1.8} />
-              </IconButton>
-            )}
-            <IconButton
-              label="移除发布草稿"
-              onClick={() => void onDelete(selectedDraft)}
-            >
-              <Trash size={16} strokeWidth={1.8} />
-            </IconButton>
-          </header>
-
-          {(selectedDraft.sourceChanged || selectedDraft.sourceMissing) && (
-            <div className="publish-source-notice" role="status">
-              <Refresh size={15} strokeWidth={1.8} />
-              <span>
-                {selectedDraft.sourceMissing
-                  ? '来源文档已不存在，当前固定版本仍可复制。'
-                  : selectedDraft.sourceBlockId
-                    ? '来源文档已有更新，当前固定内容保持不变。'
-                    : '来源文档已有更新，当前发布版本不会自动覆盖。'}
-              </span>
-              {!selectedDraft.sourceMissing && !selectedDraft.sourceBlockId && (
-                <button
-                  type="button"
-                  onClick={() => void onUpdate(selectedDraft.id, { refreshSource: true })}
-                >
-                  更新版本
-                </button>
-              )}
-            </div>
-          )}
-
-          <section className="publish-snapshot" aria-label="排版预览">
-            <header>
-              <span className="publish-x-mark" role="img" aria-label="X">
-                <BrandMark name="x" size={14} />
-              </span>
-              <span>{`${preview.format} · ${preview.count} 字符`}</span>
-            </header>
-            <pre>{preview.content}</pre>
-          </section>
-
-          <footer className="publish-workspace-actions">
-            {selectedDraft.status === 'Queued' && (
-              <button
-                type="button"
-                onClick={() => void onUpdate(selectedDraft.id, { status: 'Published' })}
-              >
-                <Check size={15} strokeWidth={1.8} />
-                标记已发布
-              </button>
-            )}
-            <button type="button" onClick={() => void copyDraft(selectedDraft, 'x')}>
-              <Copy size={15} strokeWidth={1.8} />
-              复制排版
-            </button>
-            <button
-              className="publish-primary-action"
-              type="button"
-              onClick={() => void openXComposer(selectedDraft)}
-            >
-              <BrandMark name="x" size={13} />
-              {selectedDraft.status === 'Queued' ? '重新前往 X' : '前往 X 发布'}
-            </button>
-          </footer>
-        </article>
-      </ScrollPage>
+      <PublishWorkspace
+        draft={selectedDraft}
+        onNavigate={onNavigate}
+        onNotice={onNotice}
+        onUpdate={onUpdate}
+        onDelete={onDelete}
+      />
     )
   }
 
@@ -5443,7 +5671,13 @@ export default function App() {
   }
   const updatePublishDraft = async (
     draftId: string,
-    update: { status?: PublishDraftStatus; targets?: PublishTarget[]; refreshSource?: boolean },
+    update: {
+      status?: PublishDraftStatus
+      targets?: PublishTarget[]
+      targetText?: string
+      deliveryMode?: PublishDeliveryMode
+      refreshSource?: boolean
+    },
   ) => {
     try {
       const current = publishItems.find((draft) => draft.id === draftId)

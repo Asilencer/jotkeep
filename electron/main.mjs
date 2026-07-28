@@ -1397,6 +1397,7 @@ const restoreDocumentVersion = async (options) => {
 
 const publishKinds = new Set(['daily', 'notes', 'articles'])
 const publishStatuses = new Set(['Preparing', 'Queued', 'Published', 'Failed'])
+const publishDeliveryModes = new Set(['standard', 'long', 'thread'])
 
 const sourceRevision = (content) =>
   createHash('sha256').update(content).digest('hex').slice(0, 20)
@@ -1431,6 +1432,10 @@ const sanitizePublishDraft = (value) => {
         : undefined,
     status: value.status,
     targets: ['x'],
+    targetText:
+      typeof value.targetText === 'string' ? value.targetText.slice(0, 200_000) : undefined,
+    deliveryMode:
+      publishDeliveryModes.has(value.deliveryMode) ? value.deliveryMode : undefined,
     updatedAt: value.updatedAt,
     publishedAt: typeof value.publishedAt === 'string' ? value.publishedAt : undefined,
   }
@@ -1545,6 +1550,13 @@ const updatePublishDraft = async (options) => {
         ...source,
         status,
         targets: ['x'],
+        targetText:
+          typeof options?.targetText === 'string' && options.targetText.length <= 200_000
+            ? options.targetText
+            : previous.targetText,
+        deliveryMode: publishDeliveryModes.has(options?.deliveryMode)
+          ? options.deliveryMode
+          : previous.deliveryMode,
         updatedAt: now,
         publishedAt: status === 'Published' ? previous.publishedAt ?? now : undefined,
       }

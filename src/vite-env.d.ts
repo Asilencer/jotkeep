@@ -207,6 +207,8 @@ interface Window {
       draftId: string
       status?: NoteDownPublishDraft['status']
       targets?: NoteDownPublishDraft['targets']
+      targetText?: string
+      deliveryMode?: NoteDownPublishDraft['deliveryMode']
       refreshSource?: boolean
     }) => Promise<NoteDownPublishDraft>
     copyPublishDraft: (options: { libraryPath: string; draftId: string }) => Promise<void>
@@ -340,6 +342,8 @@ type NoteDownPublishDraft = {
   sourceBlockPreview?: string
   status: 'Preparing' | 'Queued' | 'Published' | 'Failed'
   targets: Array<'x'>
+  targetText?: string
+  deliveryMode?: 'standard' | 'long' | 'thread'
   updatedAt: string
   publishedAt?: string
   sourceChanged?: boolean

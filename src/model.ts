@@ -69,6 +69,8 @@ export type PublishDraftStatus = 'Preparing' | 'Queued' | 'Published' | 'Failed'
 
 export type PublishTarget = 'x'
 
+export type PublishDeliveryMode = 'standard' | 'long' | 'thread'
+
 export type PublishDraft = {
   id: string
   sourceKind: PublishSourceKind
@@ -80,6 +82,8 @@ export type PublishDraft = {
   sourceBlockPreview?: string
   status: PublishDraftStatus
   targets: PublishTarget[]
+  targetText?: string
+  deliveryMode?: PublishDeliveryMode
   updatedAt: string
   publishedAt?: string
   sourceChanged?: boolean

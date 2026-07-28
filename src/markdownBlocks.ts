@@ -825,11 +825,23 @@ export function parseMarkdown(markdown: string): Descendant[] {
   let sourceStart = 0
   let previousSourceEnd = -1
   const pushNode = (node: NoteElement) => {
+    const gapBefore = sourceStart - previousSourceEnd - 1
+    const leadingGap = previousSourceEnd < 0
+    const blankParagraphs = leadingGap
+      ? Math.floor(gapBefore / 2)
+      : Math.max(0, Math.floor((gapBefore - 1) / 2))
+    const remainingGap = leadingGap ? 1 : gapBefore - blankParagraphs * 2
+    for (let blankIndex = 0; blankIndex < blankParagraphs; blankIndex += 1) {
+      nodes.push({
+        ...createParagraph(),
+        markdownGapBefore: leadingGap && blankIndex === 0 ? gapBefore % 2 : 1,
+      })
+    }
     const withSource = {
       ...node,
       markdownSource: lines.slice(sourceStart, index + 1).join('\n'),
       markdownIndex: nodes.length,
-      markdownGapBefore: sourceStart - previousSourceEnd - 1,
+      markdownGapBefore: blankParagraphs > 0 ? remainingGap : gapBefore,
     }
     withSource.markdownSnapshot = markdownElementSnapshot(withSource)
     nodes.push(withSource)

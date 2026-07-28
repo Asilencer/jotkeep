@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+  createParagraph,
   parseMarkdown,
   serializeMarkdown,
   splitDocumentFile,
@@ -61,4 +62,26 @@ test('文章标题后的结构空行不会吞掉正文前导空白', () => {
     title: '标题',
     markdown: '  正文保留缩进\n\n下一段',
   })
+})
+
+test('正文中间的空白段落在保存并重载后保留', () => {
+  const source = serializeMarkdown([
+    createParagraph('第一段'),
+    createParagraph(),
+    createParagraph(),
+    createParagraph('第二段'),
+  ])
+  const reloaded = parseMarkdown(source)
+
+  assert.deepEqual(
+    reloaded.map((node) =>
+      'type' in node
+      && node.type === 'paragraph'
+      && 'text' in node.children[0]
+        ? node.children[0].text
+        : null,
+    ),
+    ['第一段', '', '', '第二段'],
+  )
+  assert.equal(serializeMarkdown(reloaded), source)
 })

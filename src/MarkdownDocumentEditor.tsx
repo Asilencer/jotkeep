@@ -91,6 +91,7 @@ import {
   parseMarkdown,
   serializeMarkdown,
   slashCommands,
+  splitDocumentFile,
   type BookmarkElement,
   type ButtonElement,
   type CalloutElement,
@@ -174,20 +175,6 @@ const useRuntimeSettings = () => {
 
 const emitSaveState = (state: DocumentSaveState) => {
   window.dispatchEvent(new CustomEvent('note-down:save-state', { detail: state }))
-}
-
-function splitDocumentFile(content: string, initialTitle: string) {
-  const normalized = content.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n')
-  const frontMatterMatch = normalized.match(/^---[ \t]*\n[\s\S]*?\n---[ \t]*(?:\n|$)/)
-  const frontMatter = frontMatterMatch?.[0].trimEnd() ?? ''
-  const documentBody = frontMatterMatch
-    ? normalized.slice(frontMatterMatch[0].length).replace(/^\n+/, '')
-    : normalized
-  const [firstLine = '', ...body] = documentBody.split('\n')
-  const titleMatch = firstLine.match(/^#\s+(.+)$/)
-  return titleMatch
-    ? { frontMatter, title: titleMatch[1].trim(), markdown: body.join('\n').trimStart() }
-    : { frontMatter, title: initialTitle, markdown: documentBody }
 }
 
 const frontMatterTags = (frontMatter: string) => {

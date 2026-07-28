@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { parseMarkdown, serializeMarkdown } from '../src/markdownBlocks'
+import {
+  parseMarkdown,
+  serializeMarkdown,
+  splitDocumentFile,
+} from '../src/markdownBlocks'
 
 test('未编辑的 Markdown 保留原始换行与未知内联语法', () => {
   const source = [
@@ -41,4 +45,20 @@ test('任务标题保留任务内换行', () => {
   ].join('\n')
 
   assert.equal(serializeMarkdown(parseMarkdown(source)), source)
+})
+
+test('文章标题后的结构空行不会吞掉正文前导空白', () => {
+  const source = [
+    '# 标题',
+    '',
+    '  正文保留缩进',
+    '',
+    '下一段',
+  ].join('\n')
+
+  assert.deepEqual(splitDocumentFile(source, '无标题'), {
+    frontMatter: '',
+    title: '标题',
+    markdown: '  正文保留缩进\n\n下一段',
+  })
 })

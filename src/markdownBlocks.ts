@@ -481,6 +481,21 @@ export function ensureTaskBlockIds(markdown: string) {
   return changed ? next.join(newline) : markdown
 }
 
+export function splitDocumentFile(content: string, initialTitle: string) {
+  const normalized = content.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n')
+  const frontMatterMatch = normalized.match(/^---[ \t]*\n[\s\S]*?\n---[ \t]*(?:\n|$)/)
+  const frontMatter = frontMatterMatch?.[0].trimEnd() ?? ''
+  const documentBody = frontMatterMatch
+    ? normalized.slice(frontMatterMatch[0].length).replace(/^\n+/, '')
+    : normalized
+  const [firstLine = '', ...body] = documentBody.split('\n')
+  const titleMatch = firstLine.match(/^#\s+(.+)$/)
+  const markdown = body[0] === '' ? body.slice(1).join('\n') : body.join('\n')
+  return titleMatch
+    ? { frontMatter, title: titleMatch[1].trim(), markdown }
+    : { frontMatter, title: initialTitle, markdown: documentBody }
+}
+
 const textChildren = (text = ''): InlineChild[] => [{ text }]
 const voidChildren = (): NoteText[] => [{ text: '' }]
 

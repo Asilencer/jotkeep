@@ -2402,6 +2402,10 @@ kbd {
   opacity: 1 !important;
 }
 
+.docx-text-line [data-slate-placeholder] {
+  top: max(0px, calc((29px - 1lh) / 2)) !important;
+}
+
 .docx-block {
   position: relative;
   display: grid;

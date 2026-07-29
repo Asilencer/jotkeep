@@ -2981,9 +2981,9 @@ const applySpaceShortcut = (editor: NoteEditor, includesTrailingSpace = false) =
   if (!Editor.isEnd(editor, editor.selection.anchor, path)) return false
 
   const currentText = Node.string(element)
-  const text = includesTrailingSpace && /[ \u3000]$/.test(currentText)
-    ? currentText.slice(0, -1)
-    : currentText
+  const hasTrailingSpace = /[ \u3000]$/.test(currentText)
+  if (includesTrailingSpace && !hasTrailingSpace) return false
+  const text = includesTrailingSpace ? currentText.slice(0, -1) : currentText
   const heading = text.match(/^(#{1,9})$/)
   const shortcuts: Record<string, SlashCommandId> = {
     '-': 'bullet',

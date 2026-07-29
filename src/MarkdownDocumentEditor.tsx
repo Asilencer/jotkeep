@@ -529,7 +529,7 @@ const createStableEditor = () => withNoteDown(withHistory(withReact(createEditor
 type CommandMenuState = {
   mode: 'slash' | 'manual'
   blockPath: number[]
-  activeCommandId?: SlashCommandId
+  appliedCommandId?: SlashCommandId
   range?: BaseRange
   query: string
   left: number
@@ -762,11 +762,17 @@ function CommandMenu({
             {groupCommands.map((command) => {
               const index = commands.indexOf(command)
               const CommandIcon = command.icon
+              const isActive = index === activeIndex
+              const isApplied = command.id === state.appliedCommandId
               return (
                 <button
-                  className={index === activeIndex ? 'is-active' : ''}
+                  className={[
+                    isActive && 'is-active',
+                    isApplied && 'is-applied',
+                  ].filter(Boolean).join(' ')}
                   type="button"
                   role="menuitem"
+                  aria-current={isApplied ? 'true' : undefined}
                   key={command.id}
                   onPointerMove={(event) => {
                     const previous = pointerPositionRef.current
@@ -3435,12 +3441,12 @@ function SlateDocumentEditor({
   }, [editor, enabledCommands, menu])
 
   useEffect(() => {
-    const index = menu?.activeCommandId
-      ? visibleCommands.findIndex((command) => command.id === menu.activeCommandId)
+    const index = menu?.appliedCommandId
+      ? visibleCommands.findIndex((command) => command.id === menu.appliedCommandId)
       : -1
     setActiveCommandIndex(Math.max(0, index))
   }, [
-    menu?.activeCommandId,
+    menu?.appliedCommandId,
     menu?.query,
     menu?.mode,
     menu?.blockPath.join('.'),
@@ -3502,7 +3508,7 @@ function SlateDocumentEditor({
     setMenu({
       mode: 'manual',
       blockPath: path,
-      activeCommandId: commandIdForElement(element),
+      appliedCommandId: commandIdForElement(element),
       query: '',
       ...getCommandMenuPosition(rect),
     })

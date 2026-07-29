@@ -4257,6 +4257,11 @@ kbd {
   color: var(--text);
 }
 
+.docx-command-menu section > button.is-applied {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--text);
+}
+
 .docx-command-icon {
   --command-icon-color: var(--text-soft);
 

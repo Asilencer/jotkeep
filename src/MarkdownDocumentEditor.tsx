@@ -3134,6 +3134,27 @@ const focusElementEnd = (editor: NoteEditor, path: number[], element: NoteElemen
   })
 }
 
+const insertParagraphAfterHeading = (editor: NoteEditor, path: number[]) => {
+  if (!editor.selection) return
+  const nextPath = Path.next(path)
+  if (Editor.isEnd(editor, editor.selection.anchor, path) && Editor.hasPath(editor, nextPath)) {
+    const next = Node.get(editor, nextPath)
+    if (isElement(next) && next.type === 'paragraph' && Node.string(next) === '') {
+      focusElementStart(editor, nextPath, next)
+      return
+    }
+  }
+
+  editor.insertBreak()
+  const nextEntry = getEditableBlockEntry(editor)
+  if (!nextEntry) return
+  Transforms.setNodes(
+    editor,
+    { type: 'paragraph', id: createElementId() },
+    { at: nextEntry[1] },
+  )
+}
+
 const selectVoidBlock = (editor: NoteEditor, path: number[]) => {
   Transforms.select(editor, path)
   queueMicrotask(() => ReactEditor.focus(editor))
@@ -3375,7 +3396,6 @@ function SlateDocumentEditor({
   const isComposingRef = useRef(false)
   const compositionChangedRef = useRef(false)
   const compositionFlushFrameRef = useRef<number | null>(null)
-  const compositionSelectionRef = useRef<BaseRange | null>(null)
   const dismissedInlineRangeRef = useRef<BaseRange | null>(null)
   const onTasksChangeRef = useRef(onTasksChange)
   onTasksChangeRef.current = onTasksChange
@@ -3921,7 +3941,7 @@ function SlateDocumentEditor({
       }
       if (element.type === 'heading') {
         event.preventDefault()
-        editor.insertBreak()
+        insertParagraphAfterHeading(editor, path)
         return
       }
       event.preventDefault()
@@ -4105,18 +4125,10 @@ function SlateDocumentEditor({
             compositionFlushFrameRef.current = null
           }
           compositionChangedRef.current = hadPendingFlush
-          compositionSelectionRef.current = null
           isComposingRef.current = true
           composingEditors.add(editor)
         }}
         onCompositionEnd={() => {
-          const domSelection = window.getSelection()
-          compositionSelectionRef.current = domSelection
-            ? ReactEditor.toSlateRange(editor, domSelection, {
-                exactMatch: false,
-                suppressThrow: true,
-              })
-            : null
           isComposingRef.current = false
           composingEditors.delete(editor)
           compositionFlushFrameRef.current = window.requestAnimationFrame(() => {
@@ -4127,11 +4139,6 @@ function SlateDocumentEditor({
               onValueChange(editor.children)
               syncEditorUI(true)
             }
-            const selection = compositionSelectionRef.current
-            compositionSelectionRef.current = null
-            if (!selection) return
-            Transforms.select(editor, selection)
-            ReactEditor.focus(editor)
           })
         }}
         onDOMBeforeInput={(event) => {

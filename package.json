@@ -1,6 +1,6 @@
 {
   "name": "jotkeep",
-  "version": "0.2.13",
+  "version": "0.2.14",
   "private": true,
   "license": "MIT",
   "description": "Jotkeep, a local-first Markdown workspace for macOS.",

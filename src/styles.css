@@ -2668,7 +2668,8 @@ kbd {
 }
 
 .docx-list-line > span {
-  align-self: center;
+  align-self: start;
+  margin-top: max(0px, calc((29px - 1lh) / 2));
   color: var(--accent-strong);
   font-variant-numeric: tabular-nums;
   text-align: left;
@@ -2693,7 +2694,7 @@ kbd {
   display: grid;
   width: 17px;
   height: 17px;
-  align-self: center;
+  align-self: start;
   place-items: center;
   margin: 0 7px 0 0;
   padding: 0;
@@ -2703,6 +2704,10 @@ kbd {
   background: var(--surface);
   color: white;
   cursor: pointer;
+}
+
+.docx-todo-line > button {
+  margin-top: calc((max(29px, 1lh) - 17px) / 2);
 }
 
 .docx-todo-line.is-checked > button,

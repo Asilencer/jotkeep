@@ -60,7 +60,7 @@ const documentHistoryLimit = 50
 const documentVersionInterval = 5 * 60 * 1000
 const weatherCacheLifetime = 20 * 60 * 1000
 const weatherHelperTimeout = 45 * 1000
-const trafficLightPosition = { x: 16, y: 24 }
+const trafficLightPosition = { x: 26, y: 24 }
 
 let mainWindow = null
 let pendingWeatherRequest = null

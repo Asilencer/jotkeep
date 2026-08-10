@@ -2402,7 +2402,8 @@ kbd {
   opacity: 1 !important;
 }
 
-.docx-text-line [data-slate-placeholder] {
+.docx-text-line [data-slate-placeholder],
+.docx-list-line > div [data-slate-placeholder] {
   top: max(0px, calc((29px - 1lh) / 2)) !important;
 }
 

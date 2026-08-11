@@ -316,6 +316,14 @@ const english: Record<string, string> = {
   '搜索': 'Search',
   '标题': 'Title',
   '请输入标题': 'Untitled',
+  '无法加载正文': 'Could not load this document',
+  '请检查资料库权限或磁盘状态，然后重试。':
+    'Check the library permissions or disk status, then try again.',
+  '正文读取失败，请检查资料库权限后重试。':
+    'Could not read the document. Check the library permissions and try again.',
+  '附件添加失败，请检查资料库权限或磁盘空间。':
+    'Could not add the attachment. Check the library permissions or disk space.',
+  '重试': 'Try again',
   '正文': 'Text',
   '无序列表': 'Bulleted list',
   '有序列表': 'Numbered list',

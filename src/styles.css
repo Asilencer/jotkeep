@@ -1626,6 +1626,16 @@ kbd {
   color: var(--text);
 }
 
+.document-conflict button:disabled {
+  cursor: wait;
+  opacity: 0.56;
+}
+
+.document-load-error {
+  margin-top: 12px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
 .document-title-editor {
   max-width: none;
   min-height: 55px;
@@ -2403,7 +2413,10 @@ kbd {
 }
 
 .docx-text-line [data-slate-placeholder],
-.docx-list-line > div [data-slate-placeholder] {
+.docx-list-line > div [data-slate-placeholder],
+.docx-todo-line > div [data-slate-placeholder],
+.docx-block blockquote [data-slate-placeholder],
+.docx-nested-block.type-quote blockquote [data-slate-placeholder] {
   top: max(0px, calc((29px - 1lh) / 2)) !important;
 }
 

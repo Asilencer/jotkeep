@@ -875,6 +875,8 @@ type PageProps = {
   onProjectFilterChange: (projectId: string, kind: DocumentKind | 'all') => void
   onNavigate: (route: Route) => void
   onNotice: (message: string) => void
+  pendingDocumentFocusId: string | null
+  onDocumentAutoFocus: (documentId: string) => void
   onRestoreDocument: (document: DocumentSummary) => void
   onTrashDocument: (document: DocumentSummary) => void
   onRestoreProject: (project: Project) => void
@@ -924,6 +926,8 @@ function Page({
   onProjectFilterChange,
   onNavigate,
   onNotice,
+  pendingDocumentFocusId,
+  onDocumentAutoFocus,
   onRestoreDocument,
   onTrashDocument,
   onRestoreProject,
@@ -944,6 +948,7 @@ function Page({
       <TodayPage
         onPublishParagraph={onPublishParagraph}
         onDocumentTasksChange={onDocumentTasksChange}
+        onNotice={onNotice}
       />
     )
   }
@@ -970,6 +975,9 @@ function Page({
           onProjectChange={onDocumentProjectChange}
           onPublishParagraph={onPublishParagraph}
           onDocumentTasksChange={onDocumentTasksChange}
+          autoFocusTitle={pendingDocumentFocusId === `${route.itemKind}/${route.itemId}`}
+          onAutoFocus={() => onDocumentAutoFocus(`${route.itemKind}/${route.itemId}`)}
+          onNotice={onNotice}
         />
       )
     }
@@ -1025,6 +1033,9 @@ function Page({
         onProjectChange={onDocumentProjectChange}
         onPublishParagraph={onPublishParagraph}
         onDocumentTasksChange={onDocumentTasksChange}
+        autoFocusTitle={pendingDocumentFocusId === `${route.kind}/${route.itemId}`}
+        onAutoFocus={() => onDocumentAutoFocus(`${route.kind}/${route.itemId}`)}
+        onNotice={onNotice}
       />
     )
   }
@@ -1547,9 +1558,11 @@ function TodayContextCard({
 function TodayPage({
   onPublishParagraph,
   onDocumentTasksChange,
+  onNotice,
 }: {
   onPublishParagraph: PageProps['onPublishParagraph']
   onDocumentTasksChange: PageProps['onDocumentTasksChange']
+  onNotice: PageProps['onNotice']
 }) {
   const libraryPath = loadSettings().libraryPath
   const [today] = useState(() => {
@@ -1602,6 +1615,7 @@ function TodayPage({
                 formatDateKey(selectedDate),
                 documentTasks,
               )}
+            onNotice={onNotice}
           />
         </Suspense>
       </article>
@@ -2837,6 +2851,9 @@ function DocumentPage({
   onProjectChange,
   onPublishParagraph,
   onDocumentTasksChange,
+  autoFocusTitle,
+  onAutoFocus,
+  onNotice,
 }: {
   kind: DocumentKind
   itemId: string
@@ -2845,6 +2862,9 @@ function DocumentPage({
   onProjectChange: (document: DocumentSummary, projectId?: string) => void
   onPublishParagraph: PageProps['onPublishParagraph']
   onDocumentTasksChange: PageProps['onDocumentTasksChange']
+  autoFocusTitle?: boolean
+  onAutoFocus?: () => void
+  onNotice: PageProps['onNotice']
 }) {
   const summary = documentItems.find((item) => item.kind === kind && item.id === itemId)
   const article = !window.noteDown && kind === 'articles'
@@ -2891,6 +2911,9 @@ function DocumentPage({
                 summary?.title ?? item?.title ?? '未命名文档',
                 documentTasks,
               )}
+            autoFocusTitle={autoFocusTitle}
+            onAutoFocus={onAutoFocus}
+            onNotice={onNotice}
             metadata={({ tags: editorTags, setTags }) => (
               <DocumentInfoPopover
                 summary={summary}
@@ -4692,6 +4715,7 @@ function loadTaskItems() {
 export default function App() {
   useI18n()
   const [route, setRoute] = useState<Route>({ page: 'today' })
+  const [pendingDocumentFocusId, setPendingDocumentFocusId] = useState<string | null>(null)
   const [projectItems, setProjectItems] = useState(() =>
     window.noteDown ? [] : loadProjectItems(),
   )
@@ -4991,6 +5015,7 @@ export default function App() {
           },
           ...current.filter((document) => documentKey(document) !== `${kind}:${id}`),
         ])
+        setPendingDocumentFocusId(documentId)
         setRoute(
           projectId
             ? { page: 'project', projectId, itemKind: kind, itemId: id }
@@ -5272,6 +5297,7 @@ export default function App() {
     dismissProjectEditor()
     setProjectDanger(null)
     setTaskDanger(null)
+    setPendingDocumentFocusId(null)
     setRoute(nextRoute)
   }
   const setDocumentProject = async (document: DocumentSummary, projectId?: string) => {
@@ -5914,6 +5940,10 @@ export default function App() {
           }
           onNavigate={navigate}
           onNotice={setNotice}
+          pendingDocumentFocusId={pendingDocumentFocusId}
+          onDocumentAutoFocus={(documentId) => {
+            setPendingDocumentFocusId((current) => current === documentId ? null : current)
+          }}
           onRestoreDocument={(document) => void setDocumentArchived(document, false)}
           onTrashDocument={(document) => void trashDocument(document)}
           onRestoreProject={restoreProject}

@@ -33,6 +33,7 @@ import {
 } from 'reicon-react'
 import {
   lazy,
+  memo,
   Suspense,
   useCallback,
   useEffect,
@@ -231,11 +232,15 @@ function EditableTitle({
   value,
   editorId,
   spellCheck,
+  autoFocus,
+  onAutoFocus,
   onChange,
 }: {
   value: string
   editorId: string
   spellCheck: boolean
+  autoFocus?: boolean
+  onAutoFocus?: () => void
   onChange: (value: string) => void
 }) {
   const ref = useRef<HTMLHeadingElement>(null)
@@ -246,6 +251,18 @@ function EditableTitle({
     if (!element || document.activeElement === element || element.textContent === value) return
     element.textContent = value
   }, [value])
+
+  useLayoutEffect(() => {
+    const element = ref.current
+    if (!autoFocus || !element) return
+    element.focus()
+    const selection = window.getSelection()
+    const range = document.createRange()
+    range.selectNodeContents(element)
+    selection?.removeAllRanges()
+    selection?.addRange(range)
+    onAutoFocus?.()
+  }, [autoFocus, onAutoFocus])
 
   const insertText = (text: string) => {
     const selection = window.getSelection()
@@ -270,7 +287,9 @@ function EditableTitle({
       role="textbox"
       aria-label={t('标题')}
       data-placeholder={t('请输入标题')}
-      onInput={(event) => onChange(event.currentTarget.textContent ?? '')}
+      onInput={(event) => {
+        if (!isComposingRef.current) onChange(event.currentTarget.textContent ?? '')
+      }}
       onCompositionStart={() => {
         isComposingRef.current = true
       }}
@@ -414,7 +433,7 @@ const selectedHTML = () => {
         attribute.name === 'class'
         || attribute.name === 'contenteditable'
         || attribute.name === 'spellcheck'
-        || attribute.name.startsWith('data-slate-')
+        || attribute.name.startsWith('data-')
       ) {
         element.removeAttribute(attribute.name)
       }
@@ -425,6 +444,10 @@ const selectedHTML = () => {
 
 const copyRichText = (event: ReactClipboardEvent<HTMLDivElement>) => {
   const html = selectedHTML()
+  const text = window.getSelection()?.toString() ?? ''
+  if (!html && !text) return
+  event.preventDefault()
+  event.clipboardData.setData('text/plain', text)
   if (html) event.clipboardData.setData('text/html', html)
 }
 
@@ -3236,43 +3259,46 @@ const insertAssetFiles = async (
   }) as [NoteElement, number[]] | undefined
   const fallbackPath = [Math.max(0, editor.children.length - 1)]
   const pathRef = Editor.pathRef(editor, blockEntry?.[1] ?? fallbackPath)
-
-  const blocks = await Promise.all(
-    files.map(async (file) => {
-      const url = await storeAssetFile(file)
-      if (file.type.startsWith('image/')) {
-        return {
-          ...(createBlockForCommand('image') as ImageElement),
-          url,
-          caption: file.name,
+  try {
+    const blocks = await Promise.all(
+      files.map(async (file) => {
+        const url = await storeAssetFile(file)
+        if (file.type.startsWith('image/')) {
+          return {
+            ...(createBlockForCommand('image') as ImageElement),
+            url,
+            caption: file.name,
+          }
         }
-      }
-      return {
-        ...(createBlockForCommand('media') as MediaElement),
-        url,
-        name: file.name,
-        mediaKind: file.type.startsWith('video/') ? 'video' as const : 'file' as const,
-      }
-    }),
-  )
+        return {
+          ...(createBlockForCommand('media') as MediaElement),
+          url,
+          name: file.name,
+          mediaKind: file.type.startsWith('video/') ? 'video' as const : 'file' as const,
+        }
+      }),
+    )
 
-  const blockPath = pathRef.unref()
-  if (!blockPath) return
-  const current = Node.get(editor, blockPath) as NoteElement
-  const replaceCurrent = isTextBlock(current) && Node.string(current) === ''
-  const insertPath = replaceCurrent ? blockPath : Path.next(blockPath)
-  Editor.withoutNormalizing(editor, () => {
-    if (replaceCurrent) Transforms.removeNodes(editor, { at: blockPath })
-    Transforms.insertNodes(editor, blocks, { at: insertPath })
-    const lastPath = [...insertPath.slice(0, -1), insertPath.at(-1)! + blocks.length - 1]
-    const nextPath = Path.next(lastPath)
-    try {
-      Node.get(editor, nextPath)
-    } catch {
-      Transforms.insertNodes(editor, createParagraph(), { at: nextPath })
-    }
-    focusElementStart(editor, lastPath, blocks.at(-1)!)
-  })
+    const blockPath = pathRef.current
+    if (!blockPath) return
+    const current = Node.get(editor, blockPath) as NoteElement
+    const replaceCurrent = isTextBlock(current) && Node.string(current) === ''
+    const insertPath = replaceCurrent ? blockPath : Path.next(blockPath)
+    Editor.withoutNormalizing(editor, () => {
+      if (replaceCurrent) Transforms.removeNodes(editor, { at: blockPath })
+      Transforms.insertNodes(editor, blocks, { at: insertPath })
+      const lastPath = [...insertPath.slice(0, -1), insertPath.at(-1)! + blocks.length - 1]
+      const nextPath = Path.next(lastPath)
+      try {
+        Node.get(editor, nextPath)
+      } catch {
+        Transforms.insertNodes(editor, createParagraph(), { at: nextPath })
+      }
+      focusElementStart(editor, lastPath, blocks.at(-1)!)
+    })
+  } finally {
+    pathRef.unref()
+  }
 }
 
 const insertInlineReminder = (editor: NoteEditor) => {
@@ -3365,7 +3391,7 @@ const cloneElementWithNewIds = (element: NoteElement) => {
   return clone
 }
 
-function SlateDocumentEditor({
+const SlateDocumentEditor = memo(function SlateDocumentEditor({
   editorId,
   publishSourceId,
   initialMarkdown,
@@ -3375,6 +3401,7 @@ function SlateDocumentEditor({
   storeAssetFile,
   resolveAssetURL,
   openStoredAsset,
+  onNotice,
   spellCheck,
   pasteMode,
   onPublishParagraph,
@@ -3388,6 +3415,7 @@ function SlateDocumentEditor({
   storeAssetFile: StoreAssetFile
   resolveAssetURL: ResolveAssetURL
   openStoredAsset: OpenStoredAsset
+  onNotice: (message: string) => void
   spellCheck: boolean
   pasteMode: 'markdown' | 'plain'
   onPublishParagraph?: (paragraph: PublishParagraphPayload) => void
@@ -4100,7 +4128,6 @@ function SlateDocumentEditor({
       initialValue={initialValue}
       onChange={(value) => {
         const hasDocumentChange = editor.operations.some((operation) => operation.type !== 'set_selection')
-        if (hasDocumentChange) onTasksChangeRef.current?.(collectDocumentTasks(value))
         const composing = isComposingRef.current || composingEditors.has(editor)
         if (hasDocumentChange) {
           if (composing || compositionFlushFrameRef.current !== null) {
@@ -4179,7 +4206,9 @@ function SlateDocumentEditor({
           const files = Array.from(event.clipboardData.files)
           if (files.length > 0) {
             event.preventDefault()
-            void insertAssetFiles(editor, files, storeAssetFile)
+            void insertAssetFiles(editor, files, storeAssetFile).catch(() => {
+              onNotice('附件添加失败，请检查资料库权限或磁盘空间。')
+            })
             return
           }
           if (pasteMode === 'plain') {
@@ -4206,7 +4235,9 @@ function SlateDocumentEditor({
           const files = Array.from(event.dataTransfer.files)
           if (files.length === 0) return
           event.preventDefault()
-          void insertAssetFiles(editor, files, storeAssetFile)
+          void insertAssetFiles(editor, files, storeAssetFile).catch(() => {
+            onNotice('附件添加失败，请检查资料库权限或磁盘空间。')
+          })
         }}
         onDragOver={(event) => {
           if (!draggingPath) return
@@ -4257,7 +4288,7 @@ function SlateDocumentEditor({
       )}
     </Slate>
   )
-}
+})
 
 function LoadedDocumentEditor({
   documentId,
@@ -4270,6 +4301,9 @@ function LoadedDocumentEditor({
   metadata,
   onPublishParagraph,
   onTasksChange,
+  autoFocusTitle,
+  onAutoFocus,
+  onNotice,
   ariaLabel,
 }: {
   documentId: string
@@ -4282,6 +4316,9 @@ function LoadedDocumentEditor({
   metadata?: ReactNode | ((value: { tags: string[]; setTags: (tags: string[]) => void }) => ReactNode)
   onPublishParagraph?: (paragraph: PublishParagraphPayload) => void
   onTasksChange?: (tasks: DocumentTaskSnapshot[]) => void
+  autoFocusTitle?: boolean
+  onAutoFocus?: () => void
+  onNotice: (message: string) => void
   ariaLabel: string
 }) {
   const normalizedInitialMarkdown = useMemo(
@@ -4291,31 +4328,61 @@ function LoadedDocumentEditor({
   const [currentFrontMatter, setCurrentFrontMatter] = useState(frontMatter)
   const [title, setTitle] = useState(initialTitle)
   const [markdown, setMarkdown] = useState(normalizedInitialMarkdown)
-  const [revision, setRevision] = useState(0)
   const [editorVersion, setEditorVersion] = useState(0)
   const [conflict, setConflict] = useState<DocumentConflict | null>(null)
+  const [resolvingConflict, setResolvingConflict] = useState(false)
   const editorSettings = useRuntimeSettings()
   const revisionRef = useRef(0)
   const baseRevisionRef = useRef(initialRevision)
   const conflictRef = useRef<DocumentConflict | null>(null)
   const saveQueueRef = useRef<Promise<unknown>>(Promise.resolve())
+  const saveTimerRef = useRef<number | null>(null)
+  const titleRef = useRef(initialTitle)
+  const frontMatterRef = useRef(frontMatter)
+  const markdownRef = useRef(normalizedInitialMarkdown)
+  const richValueRef = useRef<Descendant[] | null>(null)
+  const documentDirtyRef = useRef(false)
+  const onTasksChangeRef = useRef(onTasksChange)
+  const onPublishParagraphRef = useRef(onPublishParagraph)
   const taskIdMigrationPendingRef = useRef(normalizedInitialMarkdown !== initialMarkdown)
+  onTasksChangeRef.current = onTasksChange
+  onPublishParagraphRef.current = onPublishParagraph
   const editorId = `markdown-${documentId.replace(/[^a-z0-9_-]/gi, '-')}`
   const previewStorageKey = `note-down.preview-document.${documentId}`
-  const frontMatterPrefix = currentFrontMatter ? `${currentFrontMatter}\n\n` : ''
-  const normalizedTitle = title.trim() || '未命名文档'
-  const latestSaveRef = useRef<DocumentSaveSnapshot>({
-    content: `${frontMatterPrefix}# ${normalizedTitle}\n\n${markdown}\n`,
-    revision,
-    tags: frontMatterTags(currentFrontMatter),
-    title: normalizedTitle,
-  })
-  latestSaveRef.current = {
-    content: `${frontMatterPrefix}# ${normalizedTitle}\n\n${markdown}\n`,
-    revision,
-    tags: frontMatterTags(currentFrontMatter),
-    title: normalizedTitle,
-  }
+
+  const materializeMarkdown = useCallback(() => {
+    if (!documentDirtyRef.current) return markdownRef.current
+    const value = richValueRef.current
+    const nextMarkdown = value ? serializeMarkdown(value) : markdownRef.current
+    documentDirtyRef.current = false
+    markdownRef.current = nextMarkdown
+    if (onTasksChangeRef.current) {
+      const nodes = value ?? parseMarkdown(nextMarkdown)
+      onTasksChangeRef.current(collectDocumentTasks(nodes))
+    }
+    return nextMarkdown
+  }, [])
+
+  const createSaveSnapshot = useCallback((): DocumentSaveSnapshot => {
+    const currentMarkdown = materializeMarkdown()
+    const currentFrontMatterValue = frontMatterRef.current
+    const currentTitle = titleRef.current.trim() || '未命名文档'
+    const prefix = currentFrontMatterValue ? `${currentFrontMatterValue}\n\n` : ''
+    return {
+      content: `${prefix}# ${currentTitle}\n\n${currentMarkdown}\n`,
+      revision: revisionRef.current,
+      tags: frontMatterTags(currentFrontMatterValue),
+      title: currentTitle,
+    }
+  }, [materializeMarkdown])
+
+  const forwardTasksChange = useCallback((tasks: DocumentTaskSnapshot[]) => {
+    onTasksChangeRef.current?.(tasks)
+  }, [])
+
+  const forwardPublishParagraph = useCallback((paragraph: PublishParagraphPayload) => {
+    onPublishParagraphRef.current?.(paragraph)
+  }, [])
   const storeAssetFile = useCallback(
     async (file: globalThis.File) => {
       if (!window.noteDown) return readLocalFile(file)
@@ -4356,6 +4423,18 @@ function LoadedDocumentEditor({
     [documentId, libraryPath],
   )
 
+  const emitDocumentSaved = useCallback((snapshot: DocumentSaveSnapshot) => {
+    window.dispatchEvent(
+      new CustomEvent('note-down:document-saved', {
+        detail: {
+          documentId,
+          title: snapshot.title,
+          tags: snapshot.tags,
+        },
+      }),
+    )
+  }, [documentId])
+
   const enqueueSave = useCallback(
     (snapshot: DocumentSaveSnapshot) => {
       const save = async () => {
@@ -4380,15 +4459,7 @@ function LoadedDocumentEditor({
         }
         if (revisionRef.current === snapshot.revision) {
           emitSaveState('saved')
-          window.dispatchEvent(
-            new CustomEvent('note-down:document-saved', {
-              detail: {
-                documentId,
-                title: snapshot.title,
-                tags: snapshot.tags,
-              },
-            }),
-          )
+          emitDocumentSaved(snapshot)
         }
         return 'saved' as const
       }
@@ -4399,25 +4470,45 @@ function LoadedDocumentEditor({
       )
       return pending
     },
-    [documentId, libraryPath, previewStorageKey],
+    [documentId, emitDocumentSaved, libraryPath, previewStorageKey],
   )
 
-  useEffect(() => {
-    if (revision === 0 || conflictRef.current) return
-    const snapshot = latestSaveRef.current
-    const timeout = window.setTimeout(() => {
+  const scheduleSave = useCallback(() => {
+    if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current)
+    if (conflictRef.current) {
+      saveTimerRef.current = null
+      return
+    }
+    saveTimerRef.current = window.setTimeout(() => {
+      saveTimerRef.current = null
+      const snapshot = createSaveSnapshot()
       void enqueueSave(snapshot).catch(() => {
         if (revisionRef.current === snapshot.revision) emitSaveState('error')
       })
     }, 300)
-    return () => window.clearTimeout(timeout)
-  }, [enqueueSave, revision])
+  }, [createSaveSnapshot, enqueueSave])
+
+  const markChanged = useCallback(() => {
+    revisionRef.current += 1
+    emitSaveState('saving')
+    scheduleSave()
+  }, [scheduleSave])
+
+  const handleRichValueChange = useCallback((value: Descendant[]) => {
+    richValueRef.current = value
+    documentDirtyRef.current = true
+    markChanged()
+  }, [markChanged])
 
   useEffect(() => {
     const flush = () => {
       if (revisionRef.current === 0) return Promise.resolve()
       if (conflictRef.current) return Promise.reject(new Error('Document conflict'))
-      return enqueueSave(latestSaveRef.current).then((status) => {
+      if (saveTimerRef.current !== null) {
+        window.clearTimeout(saveTimerRef.current)
+        saveTimerRef.current = null
+      }
+      return enqueueSave(createSaveSnapshot()).then((status) => {
         if (status === 'conflict') throw new Error('Document conflict')
       })
     }
@@ -4430,15 +4521,26 @@ function LoadedDocumentEditor({
     window.addEventListener('note-down:flush-request', handleFlush)
     return () => {
       window.removeEventListener('note-down:flush-request', handleFlush)
+      if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current)
       if (revisionRef.current > 0 && !conflictRef.current) {
-        void enqueueSave(latestSaveRef.current).catch(() => {})
+        void enqueueSave(createSaveSnapshot()).catch(() => {})
       }
     }
-  }, [enqueueSave])
+  }, [createSaveSnapshot, enqueueSave])
 
   const loadDiskVersion = () => {
-    if (!conflict) return
+    if (!conflict || resolvingConflict) return
     const loaded = splitDocumentFile(conflict.content ?? '', initialTitle)
+    if (saveTimerRef.current !== null) {
+      window.clearTimeout(saveTimerRef.current)
+      saveTimerRef.current = null
+    }
+    frontMatterRef.current = loaded.frontMatter
+    titleRef.current = loaded.title
+    markdownRef.current = loaded.markdown
+    richValueRef.current = null
+    documentDirtyRef.current = false
+    revisionRef.current = 0
     setCurrentFrontMatter(loaded.frontMatter)
     setTitle(loaded.title)
     setMarkdown(loaded.markdown)
@@ -4450,47 +4552,72 @@ function LoadedDocumentEditor({
   }
 
   const keepLocalVersion = async () => {
-    if (!conflict || !window.noteDown) return
-    const prefix = currentFrontMatter ? `${currentFrontMatter}\n\n` : ''
-    const content = `${prefix}# ${title.trim() || '未命名文档'}\n\n${markdown}\n`
+    const noteDown = window.noteDown
+    if (!conflict || !noteDown || resolvingConflict) return
+    const snapshot = createSaveSnapshot()
+    setResolvingConflict(true)
     emitSaveState('saving')
     try {
-      const result = await window.noteDown.saveDocument({
-        documentId,
-        libraryPath,
-        content,
-        baseRevision: conflict.revision,
-        force: true,
-      })
-      if (result.status !== 'saved') return
+      const save = () =>
+        noteDown.saveDocument({
+          documentId,
+          libraryPath,
+          content: snapshot.content,
+          baseRevision: conflict.revision,
+          force: true,
+        })
+      const pending = saveQueueRef.current.then(save, save)
+      saveQueueRef.current = pending.then(() => undefined, () => undefined)
+      window.dispatchEvent(
+        new CustomEvent('note-down:save-pending', { detail: { pending } }),
+      )
+      const result = await pending
+      if (result.status !== 'saved') {
+        const nextConflict = { content: result.content, revision: result.revision }
+        conflictRef.current = nextConflict
+        setConflict(nextConflict)
+        emitSaveState('conflict')
+        return
+      }
       baseRevisionRef.current = result.revision
       conflictRef.current = null
       setConflict(null)
-      emitSaveState('saved')
+      if (revisionRef.current === snapshot.revision) {
+        emitSaveState('saved')
+        emitDocumentSaved(snapshot)
+      } else {
+        const latestSnapshot = createSaveSnapshot()
+        void enqueueSave(latestSnapshot).catch(() => {
+          if (revisionRef.current === latestSnapshot.revision) emitSaveState('error')
+        })
+      }
     } catch {
       emitSaveState('error')
+    } finally {
+      setResolvingConflict(false)
     }
   }
 
-  const markChanged = () => {
-    emitSaveState('saving')
-    setRevision((current) => {
-      revisionRef.current = current + 1
-      return current + 1
-    })
-  }
+  useLayoutEffect(() => {
+    if (editorSettings.editorMode !== 'source') return
+    const currentMarkdown = materializeMarkdown()
+    richValueRef.current = null
+    setMarkdown(currentMarkdown)
+  }, [editorSettings.editorMode, materializeMarkdown])
 
   useEffect(() => {
     if (!taskIdMigrationPendingRef.current) return
     taskIdMigrationPendingRef.current = false
     markChanged()
-  }, [])
+  }, [markChanged])
 
   const metadataContent = typeof metadata === 'function'
     ? metadata({
         tags: frontMatterTags(currentFrontMatter),
         setTags: (tags) => {
-          setCurrentFrontMatter((current) => updateFrontMatterTags(current, tags))
+          const nextFrontMatter = updateFrontMatterTags(frontMatterRef.current, tags)
+          frontMatterRef.current = nextFrontMatter
+          setCurrentFrontMatter(nextFrontMatter)
           markChanged()
         },
       })
@@ -4506,8 +4633,16 @@ function LoadedDocumentEditor({
             <strong>磁盘内容已更新</strong>
             <small>选择载入外部修改，或保留当前内容。</small>
           </span>
-          <button type="button" onClick={loadDiskVersion}>载入磁盘</button>
-          <button type="button" onClick={() => void keepLocalVersion()}>保留当前</button>
+          <button type="button" disabled={resolvingConflict} onClick={loadDiskVersion}>
+            载入磁盘
+          </button>
+          <button
+            type="button"
+            disabled={resolvingConflict}
+            onClick={() => void keepLocalVersion()}
+          >
+            {resolvingConflict ? '保存中' : '保留当前'}
+          </button>
         </div>
       )}
       <div className="document-title-layout">
@@ -4516,7 +4651,10 @@ function LoadedDocumentEditor({
           value={title}
           editorId={editorId}
           spellCheck={editorSettings.spellcheck}
+          autoFocus={autoFocusTitle}
+          onAutoFocus={onAutoFocus}
           onChange={(value) => {
+            titleRef.current = value
             setTitle(value)
             markChanged()
           }}
@@ -4531,8 +4669,10 @@ function LoadedDocumentEditor({
           spellCheck={editorSettings.spellcheck}
           onChange={(event) => {
             const value = event.currentTarget.value
+            markdownRef.current = value
+            richValueRef.current = null
+            documentDirtyRef.current = true
             setMarkdown(value)
-            onTasksChange?.(collectDocumentTasks(parseMarkdown(value)))
             markChanged()
           }}
         />
@@ -4546,14 +4686,12 @@ function LoadedDocumentEditor({
           storeAssetFile={storeAssetFile}
           resolveAssetURL={resolveAssetURL}
           openStoredAsset={openStoredAsset}
+          onNotice={onNotice}
           spellCheck={editorSettings.spellcheck}
           pasteMode={editorSettings.pasteMode}
-          onPublishParagraph={onPublishParagraph}
-          onTasksChange={onTasksChange}
-          onValueChange={(value) => {
-            setMarkdown(serializeMarkdown(value))
-            markChanged()
-          }}
+          onPublishParagraph={onPublishParagraph ? forwardPublishParagraph : undefined}
+          onTasksChange={forwardTasksChange}
+          onValueChange={handleRichValueChange}
         />
       )}
     </div>
@@ -4569,6 +4707,9 @@ export default function MarkdownDocumentEditor({
   metadata,
   onPublishParagraph,
   onTasksChange,
+  autoFocusTitle,
+  onAutoFocus,
+  onNotice,
   ariaLabel,
 }: {
   documentId: string
@@ -4579,6 +4720,9 @@ export default function MarkdownDocumentEditor({
   metadata?: ReactNode | ((value: { tags: string[]; setTags: (tags: string[]) => void }) => ReactNode)
   onPublishParagraph?: (paragraph: PublishParagraphPayload) => void
   onTasksChange?: (tasks: DocumentTaskSnapshot[]) => void
+  autoFocusTitle?: boolean
+  onAutoFocus?: () => void
+  onNotice: (message: string) => void
   ariaLabel: string
 }) {
   useI18n()
@@ -4588,30 +4732,40 @@ export default function MarkdownDocumentEditor({
     markdown: string
     revision: string | null
   } | null>(null)
+  const [loadError, setLoadError] = useState(false)
+  const [loadAttempt, setLoadAttempt] = useState(0)
   const previewStorageKey = `note-down.preview-document.${documentId}`
 
   useEffect(() => {
     let cancelled = false
     const load = async () => {
-      const state = window.noteDown
-        ? await window.noteDown.loadDocumentState({ documentId, libraryPath })
-        : {
-            content: window.localStorage.getItem(previewStorageKey),
-            revision: null,
-          }
-      if (cancelled) return
-      const content = state.content
-      setLoaded(
-        content
-          ? { ...splitDocumentFile(content, initialTitle), revision: state.revision }
+      try {
+        const state = window.noteDown
+          ? await window.noteDown.loadDocumentState({ documentId, libraryPath })
           : {
-              frontMatter: '',
-              title: initialTitle,
-              markdown: initialMarkdown,
-              revision: state.revision,
-            },
-      )
-      emitSaveState('saved')
+              content: window.localStorage.getItem(previewStorageKey),
+              revision: null,
+            }
+        if (cancelled) return
+        const content = state.content
+        setLoaded(
+          content
+            ? { ...splitDocumentFile(content, initialTitle), revision: state.revision }
+            : {
+                frontMatter: '',
+                title: initialTitle,
+                markdown: initialMarkdown,
+                revision: state.revision,
+              },
+        )
+        setLoadError(false)
+        emitSaveState('saved')
+      } catch {
+        if (cancelled) return
+        setLoadError(true)
+        emitSaveState('error')
+        onNotice('正文读取失败，请检查资料库权限后重试。')
+      }
     }
     const handleRestored = (event: Event) => {
       const restoredId = (event as CustomEvent<{ documentId: string }>).detail?.documentId
@@ -4624,9 +4778,32 @@ export default function MarkdownDocumentEditor({
       window.removeEventListener('note-down:document-restored', handleRestored)
     }
   // 资料库监听只更新索引摘要；正文重载必须由切换文档或显式恢复触发，避免覆盖未保存输入。
-  }, [documentId, libraryPath, previewStorageKey])
+  }, [documentId, initialMarkdown, initialTitle, libraryPath, loadAttempt, onNotice, previewStorageKey])
 
-  if (!loaded) return <div className="markdown-document" aria-busy="true" />
+  const loadErrorNotice = loadError && (
+    <div className="document-conflict document-load-error" role="alert">
+      <Refresh size={16} strokeWidth={1.9} />
+      <span>
+        <strong>{t('无法加载正文')}</strong>
+        <small>{t('请检查资料库权限或磁盘状态，然后重试。')}</small>
+      </span>
+      <button
+        type="button"
+        onClick={() => {
+          setLoadError(false)
+          setLoadAttempt((current) => current + 1)
+        }}
+      >
+        {t('重试')}
+      </button>
+    </div>
+  )
+
+  if (!loaded) {
+    return loadErrorNotice
+      ? <div className="markdown-document is-ready">{loadErrorNotice}</div>
+      : <div className="markdown-document" aria-busy="true" />
+  }
 
   return (
     <LoadedDocumentEditor
@@ -4637,10 +4814,13 @@ export default function MarkdownDocumentEditor({
       initialRevision={loaded.revision}
       title={loaded.title}
       markdown={loaded.markdown}
-      beforeTitle={beforeTitle}
+      beforeTitle={loadErrorNotice ? <>{loadErrorNotice}{beforeTitle}</> : beforeTitle}
       metadata={metadata}
       onPublishParagraph={onPublishParagraph}
       onTasksChange={onTasksChange}
+      autoFocusTitle={autoFocusTitle}
+      onAutoFocus={onAutoFocus}
+      onNotice={onNotice}
       ariaLabel={ariaLabel}
     />
   )

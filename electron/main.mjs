@@ -226,7 +226,7 @@ const nativeText = (chinese, english) =>
 protocol.registerSchemesAsPrivileged([
   {
     scheme: 'notedown-asset',
-    privileges: { secure: true, standard: true, stream: true, supportFetchAPI: true },
+    privileges: { secure: true, standard: true, stream: true, supportFetchAPI: true, corsEnabled: true },
   },
 ])
 
@@ -3434,7 +3434,10 @@ app.whenReady().then(async () => {
     const assetPath = assetPathsByToken.get(token)
     if (!assetPath) return new Response('Not found', { status: 404 })
     try {
-      return await net.fetch(pathToFileURL(assetPath).toString())
+      const response = await net.fetch(pathToFileURL(assetPath).toString())
+      const headers = new Headers(response.headers)
+      headers.set('Access-Control-Allow-Origin', new URL(allowedURL).origin)
+      return new Response(response.body, { status: response.status, headers })
     } catch {
       return new Response('Not found', { status: 404 })
     }

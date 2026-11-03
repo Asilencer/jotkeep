@@ -688,16 +688,21 @@ export function blockLabel(element: NoteElement) {
   return labels[element.type] ?? '内容'
 }
 
+const markdownEscapePattern = /\\([!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~])/g
+const unescapeMarkdownText = (text: string) => text.replace(markdownEscapePattern, '$1')
+const inlineLinkPattern = /\[((?:\\.|[^\]\\\n])+)\]\(((?:\\.|[^)\\\n])+)\)/
+
 const inlinePattern = new RegExp(
   [
+    markdownEscapePattern.source,
     '<span\\s+style="[^"]+">[\\s\\S]*?<\\/span>',
-    '\\*\\*[^*\\n]+\\*\\*',
-    '~~[^~\\n]+~~',
+    /\*\*(?:\\.|[^*\\\n])+\*\*/.source,
+    /~~(?:\\.|[^~\\\n])+~~/.source,
     '`[^`\\n]+`',
     '<u>[\\s\\S]*?<\\/u>',
     '\\[reminder:[^\\]\\n]+\\]\\([^)\\n]*\\)',
-    '\\[[^\\]\\n]+\\]\\([^)\\n]+\\)',
-    '\\*[^*\\n]+\\*',
+    inlineLinkPattern.source,
+    /\*(?:\\.|[^*\\\n])+\*/.source,
   ].join('|'),
   'g',
 )
@@ -736,7 +741,8 @@ function parseInline(text: string): InlineChild[] {
     const start = match.index ?? 0
     if (start > cursor) children.push({ text: source.slice(cursor, start) })
     const token = match[0]
-    if (token.startsWith('<span')) {
+    if (token.startsWith('\\')) children.push({ text: token.slice(1) })
+    else if (token.startsWith('<span')) {
       const styled = token.match(/^<span\s+style="([^"]+)">([\s\S]*)<\/span>$/)
       if (styled) {
         const color = inlineColor(styled[1], 'color')
@@ -747,8 +753,12 @@ function parseInline(text: string): InlineChild[] {
           ),
         )
       }
-    } else if (token.startsWith('**')) children.push({ text: token.slice(2, -2), bold: true })
-    else if (token.startsWith('~~')) children.push({ text: token.slice(2, -2), strike: true })
+    } else if (token.startsWith('**')) {
+      children.push({ text: unescapeMarkdownText(token.slice(2, -2)), bold: true })
+    }
+    else if (token.startsWith('~~')) {
+      children.push({ text: unescapeMarkdownText(token.slice(2, -2)), strike: true })
+    }
     else if (token.startsWith('`')) children.push({ text: token.slice(1, -1), code: true })
     else if (token.startsWith('<u>')) {
       children.push(...parseInline(token.slice(3, -4)).map(applyInlineUnderline))
@@ -757,9 +767,9 @@ function parseInline(text: string): InlineChild[] {
       const reminder = token.match(/^\[reminder:([^\]]+)\]\(([^)]*)\)$/)
       if (reminder) children.push(createReminder(reminder[1], reminder[2]))
     } else if (token.startsWith('[')) {
-      const link = token.match(/^\[([^\]]+)\]\(([^)]+)\)$/)
-      if (link) children.push(createLink(link[1], link[2]))
-    } else children.push({ text: token.slice(1, -1), italic: true })
+      const link = token.match(inlineLinkPattern)
+      if (link) children.push(createLink(unescapeMarkdownText(link[1]), unescapeMarkdownText(link[2])))
+    } else children.push({ text: unescapeMarkdownText(token.slice(1, -1)), italic: true })
     cursor = start + token.length
   }
   if (cursor < source.length) children.push({ text: source.slice(cursor) })
@@ -1183,7 +1193,8 @@ const plainText = (node: NoteElement | NoteText): string => {
 }
 
 const serializeText = (text: NoteText) => {
-  let value = text.text.replace(/\n/g, '<br>')
+  let value = (text.code ? text.text : text.text.replace(/[\\`*_[\]<>~]/g, '\\$&'))
+    .replace(/\n/g, '<br>')
   if (text.code) value = `\`${value}\``
   if (text.bold) value = `**${value}**`
   if (text.italic) value = `*${value}*`
@@ -1201,7 +1212,10 @@ const serializeInline = (children: InlineChild[]): string =>
   children
     .map((child) => {
       if ('text' in child) return serializeText(child)
-      if (child.type === 'link') return `[${serializeInline(child.children)}](${child.url})`
+      if (child.type === 'link') {
+        const url = child.url.replace(/[\\()]/g, '\\$&')
+        return `[${serializeInline(child.children)}](${url})`
+      }
       return `[reminder:${child.label}](${child.date})`
     })
     .join('')

@@ -8,6 +8,9 @@ const safeRemoteURL = (value: string) => {
   }
 }
 
+const safeImageURL = (value: string) => safeRemoteURL(value)
+  || /^data:image\/(?:png|jpe?g|gif|webp|avif|bmp|svg\+xml|x-icon|heic);base64,[a-z\d+/=\s]+$/i.test(value)
+
 const tableMarkdown = (table: HTMLTableElement) => {
   const rows = Array.from(table.rows).map((row) =>
     Array.from(row.cells).map((cell) =>
@@ -43,7 +46,7 @@ export const htmlToMarkdown = (html: string) => {
     }
     if (
       element instanceof HTMLImageElement &&
-      !safeRemoteURL(element.getAttribute('src') ?? '')
+      !safeImageURL(element.getAttribute('src') ?? '')
     ) {
       element.removeAttribute('src')
     }
@@ -63,6 +66,16 @@ export const htmlToMarkdown = (html: string) => {
   turndown.addRule('underline', {
     filter: 'u',
     replacement: (content) => `<u>${content}</u>`,
+  })
+  turndown.addRule('image', {
+    filter: 'img',
+    replacement: (_content, node) => {
+      const image = node as HTMLImageElement
+      const source = image.getAttribute('src')
+      if (!source) return ''
+      const caption = (image.getAttribute('alt') ?? '').replace(/[\r\n]+/g, ' ')
+      return `\n\n![${caption}](${source})\n\n`
+    },
   })
   turndown.addRule('table', {
     filter: 'table',

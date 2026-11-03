@@ -41,7 +41,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type ClipboardEvent as ReactClipboardEvent,
   type CSSProperties,
   type KeyboardEvent,
   type MouseEvent as ReactMouseEvent,
@@ -406,15 +405,14 @@ const replaceClipboardElement = (source: Element, tagName: string) => {
   return replacement
 }
 
-const selectedHTML = () => {
-  const selection = window.getSelection()
-  if (!selection || selection.isCollapsed || selection.rangeCount === 0) return ''
-
+const clipboardHTML = (html: string, fragment: string) => {
   const container = document.createElement('div')
-  container.append(selection.getRangeAt(0).cloneContents())
+  container.innerHTML = html
   container.querySelectorAll(
     '.docx-block-gutter, .docx-nested-block-gutter, '
-    + '.docx-inline-toolbar, .docx-command-menu, .docx-block-action-menu',
+    + '.docx-inline-toolbar, .docx-command-menu, .docx-block-action-menu, '
+    + '.docx-asset-controls, .docx-asset-caption, .docx-hidden-file, '
+    + '.docx-table-cell-actions, .docx-void-caret, [data-slate-spacer]',
   ).forEach((element) => element.remove())
   container.querySelectorAll<HTMLElement>('.docx-inline-underline')
     .forEach((element) => {
@@ -439,24 +437,26 @@ const selectedHTML = () => {
       }
     }
   })
+  const attachment = container.firstElementChild
+  if (attachment && fragment) {
+    attachment.setAttribute('data-slate-fragment', fragment)
+    attachment.setAttribute('data-jotkeep-fragment', 'true')
+  }
   return container.innerHTML
 }
 
-const copyRichText = (event: ReactClipboardEvent<HTMLDivElement>) => {
-  const html = selectedHTML()
-  const text = window.getSelection()?.toString() ?? ''
-  if (!html && !text) return
-  event.preventDefault()
-  event.clipboardData.setData('text/plain', text)
-  if (html) event.clipboardData.setData('text/html', html)
-}
+const hasDocumentFragment = (data: DataTransfer) =>
+  Boolean(data.getData('application/x-jotkeep-fragment'))
+  || data.getData('text/html').includes('data-jotkeep-fragment="true"')
 
 const isStructuredClipboardText = (text: string) =>
   text.includes('\n') ||
   /^(#{1,9}\s|[-*>]\s|\d+\.\s|```|\$\$|!\[|\||:::)/.test(text.trimStart())
 
 function withNoteDown(editor: NoteEditor) {
-  const { insertBreak, insertData, insertText, isInline, isVoid, normalizeNode } = editor
+  const {
+    insertBreak, insertData, insertFragment, insertText, isInline, isVoid, normalizeNode, setFragmentData,
+  } = editor
 
   editor.isInline = (element) =>
     SlateElement.isElement(element) && ['link', 'reminder'].includes(element.type)
@@ -475,7 +475,21 @@ function withNoteDown(editor: NoteEditor) {
     if (entry) Transforms.setNodes(editor, { id: createElementId() }, { at: entry[1] })
   }
 
+  editor.setFragmentData = (data, origin) => {
+    setFragmentData(data, origin)
+    const html = data.getData('text/html')
+    if (!html) return
+    data.setData('text/html', clipboardHTML(html, data.getData('application/x-jotkeep-fragment')))
+    const text = window.getSelection()?.toString()
+    if (text) data.setData('text/plain', text)
+  }
+
+  editor.insertFragment = (fragment, options) => {
+    insertFragment(fragment.filter(isElement).map(cloneElementWithNewIds), options)
+  }
+
   editor.insertData = (data) => {
+    if (hasDocumentFragment(data) && editor.insertFragmentData(data)) return
     const text = data.getData('text/plain').replace(/\r\n?/g, '\n')
     if (insertTableData(editor, text)) return
     const html = data.getData('text/html')
@@ -547,7 +561,7 @@ function withNoteDown(editor: NoteEditor) {
   return editor
 }
 
-const createStableEditor = () => withNoteDown(withHistory(withReact(createEditor())))
+const createStableEditor = () => withNoteDown(withHistory(withReact(createEditor(), 'x-jotkeep-fragment')))
 
 type CommandMenuState = {
   mode: 'slash' | 'manual'
@@ -1757,7 +1771,7 @@ function RawBlock({ element, children }: { element: RawElement; children: ReactN
   )
 }
 
-const readLocalFile = (file: globalThis.File) =>
+const readLocalFile = (file: Blob) =>
   new Promise<string>((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => resolve(String(reader.result ?? ''))
@@ -1818,7 +1832,15 @@ function ImageBlock({
   const editor = useSlateStatic()
   const selected = useSelected()
   const fileRef = useRef<HTMLInputElement>(null)
-  const [asset, setAsset] = useAssetSource(element.url, resolveAssetURL)
+  const resolveImageSource = useCallback(async (url: string) => {
+    const source = await resolveAssetURL(url)
+    // 本地协议地址只能由 Jotkeep 读取；内嵌数据让复制到其他应用的图片也可用。
+    if (!/^(?:notedown-asset:|file:|blob:)/i.test(source)) return source
+    const response = await fetch(source)
+    if (!response.ok) throw new Error('Unable to read image')
+    return readLocalFile(await response.blob())
+  }, [resolveAssetURL])
+  const [asset, setAsset] = useAssetSource(element.url, resolveImageSource)
   const chooseFile = () => fileRef.current?.click()
   return (
     <figure
@@ -3382,10 +3404,17 @@ const isMacShortcut = (event: KeyboardEvent, key: string) =>
 
 const cloneElementWithNewIds = (element: NoteElement) => {
   const clone = structuredClone(element)
-  const refreshIds = (node: NoteElement | NoteText) => {
-    if ('text' in node) return
+  const refreshIds = (node: NoteElement | NoteText): boolean => {
+    if ('text' in node) return false
     node.id = createElementId()
-    node.children.forEach((child) => refreshIds(child as NoteElement | NoteText))
+    const containsTask = node.children.map((child) => refreshIds(child as NoteElement | NoteText))
+      .some(Boolean) || node.type === 'task'
+    // 任务 ID 写在 Markdown 中，父块的原文缓存也不能继续引用旧任务。
+    if (containsTask) {
+      delete node.markdownSource
+      delete node.markdownSnapshot
+    }
+    return containsTask
   }
   refreshIds(clone)
   return clone
@@ -4201,8 +4230,17 @@ const SlateDocumentEditor = memo(function SlateDocumentEditor({
         }}
         onKeyDown={handleKeyDown}
         onDoubleClick={insertParagraphAtGap}
-        onCopy={copyRichText}
         onPaste={(event) => {
+          if (
+            event.target instanceof HTMLInputElement
+            || event.target instanceof HTMLTextAreaElement
+            || event.target instanceof HTMLSelectElement
+          ) return
+          if (pasteMode !== 'plain' && hasDocumentFragment(event.clipboardData)) {
+            event.preventDefault()
+            editor.insertData(event.clipboardData)
+            return
+          }
           const files = Array.from(event.clipboardData.files)
           if (files.length > 0) {
             event.preventDefault()
@@ -4734,11 +4772,14 @@ export default function MarkdownDocumentEditor({
   } | null>(null)
   const [loadError, setLoadError] = useState(false)
   const [loadAttempt, setLoadAttempt] = useState(0)
+  const loadOptionsRef = useRef({ initialTitle, initialMarkdown, onNotice })
+  loadOptionsRef.current = { initialTitle, initialMarkdown, onNotice }
   const previewStorageKey = `note-down.preview-document.${documentId}`
 
   useEffect(() => {
     let cancelled = false
     const load = async () => {
+      const { initialTitle, initialMarkdown, onNotice } = loadOptionsRef.current
       try {
         const state = window.noteDown
           ? await window.noteDown.loadDocumentState({ documentId, libraryPath })
@@ -4777,8 +4818,8 @@ export default function MarkdownDocumentEditor({
       cancelled = true
       window.removeEventListener('note-down:document-restored', handleRestored)
     }
-  // 资料库监听只更新索引摘要；正文重载必须由切换文档或显式恢复触发，避免覆盖未保存输入。
-  }, [documentId, initialMarkdown, initialTitle, libraryPath, loadAttempt, onNotice, previewStorageKey])
+  // 摘要与回调更新不重新载入正文，保留光标、输入法组合态和撤销历史。
+  }, [documentId, libraryPath, loadAttempt, previewStorageKey])
 
   const loadErrorNotice = loadError && (
     <div className="document-conflict document-load-error" role="alert">
